@@ -1,7 +1,8 @@
 import type { Metadata } from "next"
-import { CheckCircle2, Landmark, LockKeyhole, XCircle } from "lucide-react"
+import { Landmark, LockKeyhole } from "lucide-react"
 
 import { BillingCheckout } from "@/components/dashboard/billing-checkout"
+import { PaymentStatus } from "@/components/dashboard/payment-status"
 import { requireDashboardAccess } from "@/lib/dal"
 
 export const metadata: Metadata = {
@@ -11,10 +12,10 @@ export const metadata: Metadata = {
 export default async function BillingPage({
   searchParams,
 }: {
-  searchParams: Promise<{ status?: string }>
+  searchParams: Promise<{ status?: string; order_id?: string }>
 }) {
   await requireDashboardAccess()
-  const { status } = await searchParams
+  const { status, order_id } = await searchParams
 
   return (
     <div className="mx-auto max-w-3xl space-y-6">
@@ -25,18 +26,10 @@ export default async function BillingPage({
         </p>
       </div>
 
-      {status === "success" ? (
-        <div className="flex items-center gap-3 rounded-xl border border-chart-2/40 bg-chart-2/10 px-4 py-3 text-sm">
-          <CheckCircle2 className="size-4 shrink-0 text-chart-2" />
-          <span>
-            Your payment was sent. It will be confirmed on-chain shortly and
-            credits or your plan updated automatically.
-          </span>
-        </div>
-      ) : null}
-      {status === "cancelled" ? (
+      {order_id ? <PaymentStatus orderId={order_id} /> : null}
+      {!order_id && status === "cancelled" ? (
         <div className="flex items-center gap-3 rounded-xl border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm">
-          <XCircle className="size-4 shrink-0 text-destructive" />
+          <LockKeyhole className="size-4 shrink-0 text-destructive" />
           <span>Payment was cancelled. No charge was made.</span>
         </div>
       ) : null}
