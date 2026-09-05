@@ -6,7 +6,7 @@ import {
   CircleDollarSign,
   Coins,
   ShieldCheck,
-  Zap,
+  Sparkles,
 } from "lucide-react"
 
 import {
@@ -14,7 +14,9 @@ import {
   type CheckoutCrypto,
   type CheckoutState,
 } from "@/actions/billing"
-import { MIN_CREDITS } from "@/lib/checkout"
+import { TOKENS_PER_CENT } from "@/lib/checkout"
+import { tokenPackages } from "@/lib/token-packages"
+import { plans } from "@/lib/plans"
 import { Button } from "@/components/ui/button"
 import {
   Card,
@@ -23,8 +25,6 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
 import { cn } from "@/lib/utils"
 
 const cryptos: { id: CheckoutCrypto; label: string; icon: typeof Bitcoin }[] = [
@@ -33,10 +33,7 @@ const cryptos: { id: CheckoutCrypto; label: string; icon: typeof Bitcoin }[] = [
   { id: "sol", label: "SOL", icon: CircleDollarSign },
 ]
 
-const paidPlans = [
-  { id: "pro", name: "Pro", price: 5, note: "per month" },
-  { id: "ultimate", name: "Ultimate", price: 7, note: "per month" },
-] as const
+const paidPlans = plans.filter((p) => p.id !== "free" && p.priceUsd)
 
 export function BillingCheckout() {
   const [state, formAction, pending] = useActionState<CheckoutState, FormData>(
@@ -45,9 +42,9 @@ export function BillingCheckout() {
   )
 
   const [mode, setMode] = useState<"subscription" | "credits">("subscription")
-  const [planId, setPlanId] = useState<"pro" | "ultimate">("pro")
+  const [planId, setPlanId] = useState(paidPlans[0]?.id ?? "pro")
+  const [packageId, setPackageId] = useState(tokenPackages[2]?.id ?? "pro")
   const [crypto, setCrypto] = useState<CheckoutCrypto>("btc")
-  const [tokensInput, setTokensInput] = useState("")
 
   useEffect(() => {
     if (state?.redirectUrl) {
@@ -56,25 +53,16 @@ export function BillingCheckout() {
   }, [state])
 
   const plan = paidPlans.find((p) => p.id === planId) ?? paidPlans[0]
-  const typedTokens = Math.max(Math.round(Number(tokensInput) || 0), 0)
-  const amountUsd =
-    mode === "subscription" ? String(plan.price) : String(typedTokens / 1000)
-  const amount = Math.max(Number(amountUsd) || 0, 0)
-  const tokens =
-    mode === "subscription"
-      ? Math.round(amount * 1000)
-      : typedTokens
-
-  const belowMin = mode === "credits" && typedTokens > 0 && typedTokens < MIN_CREDITS
-  const canSubmit =
-    amount > 0 && (mode === "subscription" || typedTokens >= MIN_CREDITS)
+  const pkg = tokenPackages.find((p) => p.id === packageId) ?? tokenPackages[0]
+  const amountUsd = mode === "subscription" ? (plan?.priceUsd ?? 0) : (pkg?.priceUsd ?? 0)
+  const canSubmit = amountUsd > 0
 
   return (
     <form action={formAction} className="space-y-6">
       <input type="hidden" name="mode" value={mode} />
       <input type="hidden" name="crypto" value={crypto} />
-      <input type="hidden" name="amountUsd" value={amountUsd} />
       <input type="hidden" name="plan" value={planId} />
+      <input type="hidden" name="packageId" value={packageId} />
 
       <div>
         <div className="flex flex-wrap items-center justify-between gap-3">
@@ -122,50 +110,54 @@ export function BillingCheckout() {
                   />
                 </div>
                 <p className="mt-2 font-mono text-2xl font-semibold">
-                  ${p.price}
+                  {p.price}
                   <span className="text-xs font-normal text-muted-foreground">
                     {" "}
-                    / {p.note}
+                    / {p.priceNote}
                   </span>
                 </p>
+                {p.tagline ? (
+                  <p className="mt-2 text-sm text-muted-foreground">{p.tagline}</p>
+                ) : null}
               </button>
             ))}
           </div>
         ) : (
-          <div className="mt-4 space-y-3 rounded-xl border border-border bg-card/50 p-4">
-            <div className="space-y-2">
-              <Label htmlFor="checkout-tokens">Amount of tokens</Label>
-              <Input
-                id="checkout-tokens"
-                type="number"
-                min="1"
-                step="1"
-                value={tokensInput}
-                onChange={(e) => setTokensInput(e.target.value)}
-                placeholder="e.g. 500"
-              />
-              <p className="font-mono text-xs text-muted-foreground">
-                {typedTokens > 0
-                  ? `${typedTokens.toLocaleString()} tokens = $${(
-                      typedTokens / 1000
-                    ).toFixed(3)}`
-                  : `10 tokens per cent. Minimum ${MIN_CREDITS.toLocaleString()} credits.`}
-              </p>
-              {belowMin ? (
-                <p className="text-xs text-destructive">
-                  Minimum purchase is {MIN_CREDITS.toLocaleString()} credits.
+          <div className="mt-4 grid gap-3 sm:grid-cols-2">
+            {tokenPackages.map((p) => (
+              <button
+                key={p.id}
+                type="button"
+                onClick={() => setPackageId(p.id)}
+                className={cn(
+                  "relative rounded-xl border p-4 text-left transition-colors",
+                  packageId === p.id
+                    ? "border-primary/50 bg-primary/5"
+                    : "border-border bg-card/50 hover:border-primary/30"
+                )}
+              >
+                {p.popular ? (
+                  <span className="absolute right-4 top-4 flex items-center gap-1 rounded-full border border-primary/30 bg-primary/10 px-2 py-0.5 font-mono text-[10px] uppercase tracking-wider text-primary">
+                    <Sparkles className="size-3" />
+                    Popular
+                  </span>
+                ) : null}
+                <p className="font-medium">{p.name}</p>
+                <p className="mt-1 font-mono text-sm text-muted-foreground">
+                  {p.tokens.toLocaleString()} tokens
                 </p>
-              ) : null}
-              {state?.errors?.amountUsd ? (
-                <p className="text-xs text-destructive">
-                  {state.errors.amountUsd.join(" · ")}
+                <p className="mt-2 font-mono text-2xl font-semibold">
+                  ${p.priceUsd.toFixed(2)}
                 </p>
-              ) : null}
-            </div>
-            <p className="flex items-center gap-2 font-mono text-xs text-muted-foreground">
-              <Zap className="size-4 text-primary" />
-              You get {tokens.toLocaleString()} tokens at 10 tokens per cent.
-            </p>
+                <p className="mt-1 text-sm text-muted-foreground">{p.note}</p>
+                <span
+                  className={cn(
+                    "absolute bottom-4 right-4 size-4 rounded-full border",
+                    packageId === p.id && "border-primary bg-primary"
+                  )}
+                />
+              </button>
+            ))}
           </div>
         )}
       </div>
@@ -203,14 +195,7 @@ export function BillingCheckout() {
 
           <div className="mt-4 rounded-xl border border-border bg-muted/30 p-4">
             <p className="text-sm text-muted-foreground">
-              You’ll pay{" "}
-              <span className="font-semibold text-foreground">
-                $
-                {mode === "credits"
-                  ? amount.toFixed(3).replace(/0+$/, "").replace(/\.$/, "")
-                  : amount.toFixed(2)}
-              </span>{" "}
-              worth of{" "}
+              You’ll pay ${amountUsd.toFixed(2)} worth of{" "}
               <span className="font-semibold text-foreground">
                 {crypto.toUpperCase()}
               </span>
@@ -218,15 +203,27 @@ export function BillingCheckout() {
             </p>
           </div>
 
-          <Button type="submit" size="lg" className="mt-4 w-full" disabled={pending || !canSubmit}>
+          <Button
+            type="submit"
+            size="lg"
+            className="mt-4 w-full"
+            disabled={pending || !canSubmit}
+          >
             {pending
               ? "Redirecting to NOWPayments…"
-              : belowMin
-                ? `Minimum ${MIN_CREDITS} credits`
-                : `Pay with ${crypto.toUpperCase()}`}
+              : `Pay with ${crypto.toUpperCase()}`}
           </Button>
 
-          {state?.message ? (
+          {state?.errors ? (
+            <div className="mt-3 space-y-1">
+              {Object.entries(state.errors).map(([key, messages]) => (
+                <p key={key} className="rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2.5 text-sm text-destructive">
+                  {messages.join(" · ")}
+                </p>
+              ))}
+            </div>
+          ) : null}
+          {state?.message && !state.redirectUrl ? (
             <p className="mt-3 rounded-lg border border-primary/30 bg-primary/10 px-3 py-2.5 text-sm text-primary">
               {state.message}
             </p>
@@ -243,6 +240,12 @@ export function BillingCheckout() {
           so every transaction shows up in your account.
         </p>
       </div>
+
+      <p className="font-mono text-xs text-muted-foreground">
+        Tokens are priced at {TOKENS_PER_CENT} per cent. All prices are
+        settled on our server — the amount you’re shown here can’t be tampered
+        with.
+      </p>
     </form>
   )
 }

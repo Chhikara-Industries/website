@@ -33,5 +33,19 @@ export function getSupabaseAnonKey() {
   return process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? ""
 }
 
+// Public site URL, used for callback URLs. SITE_URL is the server-side
+// override; NEXT_PUBLIC_SITE_URL is safe to expose to the browser.
 export const SITE_URL =
-  process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000"
+  process.env.SITE_URL ??
+  process.env.NEXT_PUBLIC_SITE_URL ??
+  "http://localhost:3000"
+
+// NOWPayments subscription plan ids (configure once in the NOWPayments
+// dashboard and mirror them here). These are not secrets.
+export function getNowPaymentsPlanId(planId: "pro" | "ultimate"): string {
+  const value =
+    planId === "pro"
+      ? process.env.NOWPAYMENTS_PLAN_PRO
+      : process.env.NOWPAYMENTS_PLAN_ULTIMATE
+  return value?.trim() ?? ""
+}
