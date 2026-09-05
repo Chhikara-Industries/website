@@ -5,7 +5,7 @@ import { randomUUID } from "node:crypto"
 import { nowPaymentsConfigured, supabaseConfigured } from "@/lib/env"
 import { createClient } from "@/lib/supabase/server"
 import { createServiceClient } from "@/lib/supabase/service"
-import { createInvoice, nowPaymentsPlanIdFor } from "@/lib/nowpayments"
+import { createDirectPayment, nowPaymentsPlanIdFor } from "@/lib/nowpayments"
 import { MIN_CREDITS } from "@/lib/checkout"
 import { getTokenPackage } from "@/lib/token-packages"
 import { plans, type PlanId } from "@/lib/plans"
@@ -142,16 +142,16 @@ export async function createCheckout(
     }
   }
 
-  let invoice
+  let payment
   try {
-    invoice = await createInvoice({
+    payment = await createDirectPayment({
       amountUsd,
       orderId,
       orderDescription: item,
       selectedCrypto,
     })
   } catch (e) {
-    console.error("[billing] invoice creation failed", {
+    console.error("[billing] payment creation failed", {
       orderId,
       mode,
       error: e instanceof Error ? e.message : "unknown",
@@ -164,31 +164,29 @@ export async function createCheckout(
     }
   }
 
+  const update = {
+    status: "awaiting_payment",
+    nowpayments_payment_id: payment.paymentId,
+    nowpayments_purchase_id: payment.purchaseId ?? null,
+    nowpayments_status: "waiting",
+    pay_address: payment.payAddress,
+    pay_currency: payment.payCurrency,
+    pay_amount: payment.payAmount,
+  }
+
   const { error: updateError } = await supabase
     .from("checkouts")
-    .update({
-      status: "awaiting_payment",
-      nowpayments_invoice_id: invoice.invoiceId,
-      nowpayments_purchase_id: invoice.purchaseId ?? null,
-    })
+    .update(update)
     .eq("id", orderId)
   if (updateError) {
     const service = createServiceClient()
     if (service) {
-      await service
-        .from("checkouts")
-        .update({
-          status: "awaiting_payment",
-          nowpayments_invoice_id: invoice.invoiceId,
-          nowpayments_purchase_id: invoice.purchaseId ?? null,
-        })
-        .eq("id", orderId)
+      await service.from("checkouts").update(update).eq("id", orderId)
     }
   }
 
   return {
-    redirectUrl: invoice.invoiceUrl,
     orderId,
-    message: `Checkout started for ${item} ($${amountUsd.toFixed(2)}) with ${CRYPTOS[selectedCrypto]}.`,
+    message: `Checkout started for ${item}. Send exactly ${payment.payAmount} ${payment.payCurrency.toUpperCase()} to the address shown.`,
   }
 }

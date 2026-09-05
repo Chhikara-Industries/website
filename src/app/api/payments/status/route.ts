@@ -11,6 +11,11 @@ type CheckoutRow = {
   nowpayments_status: string | null
   paid_at: string | null
   updated_at: string
+  pay_address: string | null
+  pay_currency: string | null
+  pay_amount: number | null
+  amount_usd: number | null
+  item: string | null
 }
 
 export async function GET(request: NextRequest) {
@@ -36,7 +41,9 @@ export async function GET(request: NextRequest) {
   const query = (client: typeof supabase | NonNullable<typeof service>) =>
     client
       .from("checkouts")
-      .select("id, user_id, status, nowpayments_status, paid_at, updated_at")
+      .select(
+        "id, user_id, status, nowpayments_status, paid_at, updated_at, pay_address, pay_currency, pay_amount, amount_usd, item"
+      )
       .eq("id", orderId)
       .eq("user_id", user.id)
       .maybeSingle()
@@ -60,6 +67,11 @@ export async function GET(request: NextRequest) {
       nowpaymentsStatus: row.nowpayments_status,
       paidAt: row.paid_at,
       updatedAt: row.updated_at,
+      payAddress: row.pay_address,
+      payCurrency: row.pay_currency,
+      payAmount: row.pay_amount,
+      amountUsd: row.amount_usd,
+      item: row.item,
     },
     { status: 200 }
   )

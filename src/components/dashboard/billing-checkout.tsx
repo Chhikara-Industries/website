@@ -1,6 +1,6 @@
 "use client"
 
-import { useActionState, useEffect, useState } from "react"
+import { useActionState, useState } from "react"
 import {
   Bitcoin,
   CircleDollarSign,
@@ -17,6 +17,7 @@ import {
 import { TOKENS_PER_CENT } from "@/lib/checkout"
 import { tokenPackages } from "@/lib/token-packages"
 import { plans } from "@/lib/plans"
+import { PaymentStatus } from "@/components/dashboard/payment-status"
 import { Button } from "@/components/ui/button"
 import {
   Card,
@@ -46,16 +47,25 @@ export function BillingCheckout() {
   const [packageId, setPackageId] = useState(tokenPackages[2]?.id ?? "pro")
   const [crypto, setCrypto] = useState<CheckoutCrypto>("btc")
 
-  useEffect(() => {
-    if (state?.redirectUrl) {
-      window.location.assign(state.redirectUrl)
-    }
-  }, [state])
-
   const plan = paidPlans.find((p) => p.id === planId) ?? paidPlans[0]
   const pkg = tokenPackages.find((p) => p.id === packageId) ?? tokenPackages[0]
   const amountUsd = mode === "subscription" ? (plan?.priceUsd ?? 0) : (pkg?.priceUsd ?? 0)
   const canSubmit = amountUsd > 0
+
+  if (state?.orderId) {
+    return (
+      <div className="space-y-4">
+        <div className="rounded-xl border border-border bg-card/50 px-4 py-3 text-sm text-muted-foreground">
+          {state.message}
+        </div>
+        <PaymentStatus orderId={state.orderId} />
+        <p className="font-mono text-xs text-muted-foreground">
+          Keep this page open — your purchase is confirmed automatically, no
+          further action needed.
+        </p>
+      </div>
+    )
+  }
 
   return (
     <form action={formAction} className="space-y-6">
@@ -199,7 +209,8 @@ export function BillingCheckout() {
               <span className="font-semibold text-foreground">
                 {crypto.toUpperCase()}
               </span>
-              . The exact crypto amount is set by NOWPayments at checkout.
+              . The exact crypto amount and deposit address are shown as soon
+              as your order is created.
             </p>
           </div>
 

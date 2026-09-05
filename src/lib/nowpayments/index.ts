@@ -197,6 +197,65 @@ export async function getPaymentStatus(
 }
 
 // ---------------------------------------------------------------------------
+// Direct on-chain payment (no NOWPayments-hosted page)
+//
+// Creates a real deposit address + exact crypto amount that we render in our
+// own checkout UI. The customer pays from their wallet; IPNs arrive exactly
+// like the hosted-invoice flow. Fixed rate locks the settled fiat amount.
+// ---------------------------------------------------------------------------
+export type CreateDirectPaymentResult = {
+  paymentId: string
+  payCurrency: string
+  payAmount: number
+  payAddress: string
+  purchaseId?: string
+}
+
+export async function createDirectPayment({
+  amountUsd,
+  orderId,
+  orderDescription,
+  selectedCrypto,
+}: {
+  amountUsd: number
+  orderId: string
+  orderDescription: string
+  selectedCrypto: NowPaymentsCrypto
+}): Promise<CreateDirectPaymentResult> {
+  const res = await apiFetch("/payment", {
+    method: "POST",
+    body: JSON.stringify({
+      price_amount: amountUsd,
+      price_currency: "usd",
+      pay_currency: selectedCrypto,
+      order_id: orderId,
+      order_description: orderDescription,
+      ipn_callback_url: `${SITE_URL}/api/webhooks/nowpayments`,
+      success_url: `${SITE_URL}/dashboard/billing?status=success&order_id=${orderId}`,
+      cancel_url: `${SITE_URL}/dashboard/billing?status=cancelled&order_id=${orderId}`,
+      is_fixed_rate: true,
+    }),
+  })
+
+  const paymentId = res.body.payment_id
+  const payAddress = typeof res.body.pay_address === "string" ? res.body.pay_address : ""
+  if (paymentId == null || !payAddress) {
+    throw new NowPaymentsError(
+      "NOWPayments returned an incomplete payment address."
+    )
+  }
+
+  return {
+    paymentId: String(paymentId),
+    payCurrency: String(res.body.pay_currency ?? selectedCrypto),
+    payAmount: Number(res.body.pay_amount ?? 0),
+    payAddress,
+    purchaseId:
+      res.body.purchase_id != null ? String(res.body.purchase_id) : undefined,
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Subscriptions (recurring payments). Plans are configured ONCE and reused;
 // they are never re-created per checkout.
 // ---------------------------------------------------------------------------
