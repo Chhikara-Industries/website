@@ -150,7 +150,9 @@ export async function createInvoice({
     body: JSON.stringify({
       price_amount: amountUsd,
       price_currency: "usd",
-      pay_currency: selectedCrypto ?? null,
+      ...(selectedCrypto
+        ? { pay_currency: selectedCrypto }
+        : {}),
       order_id: orderId,
       order_description: orderDescription,
       ipn_callback_url: `${SITE_URL}/api/webhooks/nowpayments`,
