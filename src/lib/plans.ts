@@ -9,6 +9,8 @@ export type Plan = {
   features: string[]
   cta: string
   featured?: boolean
+  intervalDays?: number
+  priceUsd?: number
 }
 
 export const plans: Plan[] = [
@@ -30,6 +32,8 @@ export const plans: Plan[] = [
     name: "Pro",
     price: "$5",
     priceNote: "per month",
+    priceUsd: 5,
+    intervalDays: 30,
     tagline: "More room, beta included",
     features: [
       "5,000 tokens per week",
@@ -44,6 +48,8 @@ export const plans: Plan[] = [
     name: "Ultimate",
     price: "$7",
     priceNote: "per month",
+    priceUsd: 7,
+    intervalDays: 30,
     tagline: "Everything, no limits",
     features: [
       "Infinite tokens",
