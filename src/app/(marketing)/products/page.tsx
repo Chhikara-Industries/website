@@ -81,7 +81,7 @@ export default function ProductsPage() {
                 <Button
                   size="lg"
                   className="mt-5 w-full"
-                  render={<Link href="/signup" />}
+                  render={<Link href="/dashboard/billing" />}
                 >
                   Buy credits
                   <ArrowRight data-icon="inline-end" className="size-4" />
