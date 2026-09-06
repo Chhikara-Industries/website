@@ -219,6 +219,7 @@ create table if not exists public.checkouts (
   nowpayments_subscription_id text,
   nowpayments_plan_id text,
   nowpayments_status text,
+  wallet_address text,
   pay_address text,
   pay_currency text,
   pay_amount numeric,

@@ -72,7 +72,13 @@ export default function PricingPage() {
                     <Button
                       className="w-full"
                       variant={plan.featured ? "default" : "outline"}
-                      render={<Link href="/dashboard/billing" />}
+                      render={
+                        plan.id !== "free" ? (
+                          <Link href={`/dashboard/billing/subscribe/${plan.id}`} />
+                        ) : (
+                          <Link href="/signup" />
+                        )
+                      }
                     >
                       {plan.cta}
                     </Button>
