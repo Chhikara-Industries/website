@@ -26,40 +26,8 @@ export type ServiceClient = NonNullable<
 // NOWPayments statuses mirrored to the internal order status. Only `finished`
 // fulfills an order; waiting/confirming keep it awaiting payment, while
 // partially_paid / sending MUST NOT auto-credit.
-export const STATUS_MAP: Record<string, string> = {
-  waiting: "awaiting_payment",
-  confirming: "awaiting_payment",
-  confirmed: "awaiting_payment",
-  sending: "awaiting_payment",
-  partially_paid: "awaiting_payment",
-  finished: "paid",
-  failed: "failed",
-  refunded: "failed",
-  expired: "expired",
-}
-
 export const FULFILL_STATUS = "finished"
 const AMOUNT_TOLERANCE = 0.99
-
-// NOWPayments /v1/subscriptions statuses mirrored to the internal order
-// status. Only a paid/active/finished subscription fulfills the plan;
-// WAITING_PAY / partially_paid MUST NOT activate anything.
-const SUBSCRIPTION_STATUS_MAP: Record<string, string> = {
-  waiting_pay: "awaiting_payment",
-  waiting: "awaiting_payment",
-  confirming: "awaiting_payment",
-  confirmed: "awaiting_payment",
-  sending: "awaiting_payment",
-  partially_paid: "awaiting_payment",
-  finished: "paid",
-  paid: "paid",
-  active: "paid",
-  failed: "failed",
-  refunded: "failed",
-  cancelled: "failed",
-  canceled: "failed",
-  expired: "expired",
-}
 
 const SUBSCRIPTION_PAID = new Set(["finished", "paid", "active"])
 
@@ -78,9 +46,11 @@ export function amountSatisfied(
   return false
 }
 
-// Mirrors a NOWPayments status onto a checkout row. Finished + amount-satisfied
-// triggers atomic `fulfill_checkout` (idempotent; pays at most once). Every
-// other status only updates the mirrored columns.
+// Applies a NOWPayments status to a checkout row WITHOUT writing anything to
+// the database unless the payment is fully settled. The DB is only updated on
+// a finished payment that satisfies the full amount (via the idempotent
+// fulfill_checkout RPC). Waiting/confirming/partially_paid statuses are
+// intentionally ignored here — no DB write occurs until the user pays in full.
 export async function applyPaymentStatus(
   supabase: ServiceClient,
   checkout: CheckoutRow,
@@ -91,42 +61,24 @@ export async function applyPaymentStatus(
     status === FULFILL_STATUS &&
     (payment == null || amountSatisfied(checkout.amount_usd, payment))
 
-  if (fulfill) {
-    const { error, data } = await supabase.rpc("fulfill_checkout", {
-      p_order_id: checkout.id,
-      p_payment_id: payment?.payment_id != null ? String(payment.payment_id) : "",
-      p_nowpayments_status: status,
+  // No database change unless the payment is finished AND meets the amount.
+  if (!fulfill) return
+
+  const { error, data } = await supabase.rpc("fulfill_checkout", {
+    p_order_id: checkout.id,
+    p_payment_id: payment?.payment_id != null ? String(payment.payment_id) : "",
+    p_nowpayments_status: status,
+  })
+  if (error) {
+    console.error("[payments] fulfill rpc failed", {
+      orderId: checkout.id,
+      error: error.message,
     })
-    if (error) {
-      console.error("[payments] fulfill rpc failed", {
-        orderId: checkout.id,
-        error: error.message,
-      })
-      return
-    }
-    if (data === true) {
-      console.info("[payments] order fulfilled", { orderId: checkout.id, status })
-      await attachRecurringSubscription(supabase, checkout)
-    }
     return
   }
-
-  const internalStatus = STATUS_MAP[status] ?? "awaiting_payment"
-  const { error: updateError } = await supabase
-    .from("checkouts")
-    .update({
-      status: internalStatus,
-      nowpayments_status: status,
-      nowpayments_payment_id:
-        payment?.payment_id != null ? String(payment.payment_id) : undefined,
-      ipn_count: checkout.ipn_count ? checkout.ipn_count + 1 : 1,
-    })
-    .eq("id", checkout.id)
-  if (updateError) {
-    console.warn("[payments] status update failed", {
-      orderId: checkout.id,
-      error: updateError.message,
-    })
+  if (data === true) {
+    console.info("[payments] order fulfilled", { orderId: checkout.id, status })
+    await attachRecurringSubscription(supabase, checkout)
   }
 }
 
@@ -152,9 +104,10 @@ export async function applyRenewal(
   }
 }
 
-// Mirrors a NOWPayments subscription status onto a subscription-mode checkout.
-// A paid/active/finished subscription activates the plan via the same
-// idempotent fulfill_checkout RPC; WAITING_PAY / partially_paid only mirror.
+// Applies a NOWPayments subscription status WITHOUT writing anything to the
+// database unless the subscription is fully paid. Only a paid/active/finished
+// subscription activates the plan (via the idempotent fulfill_checkout RPC);
+// WAITING_PAY / partially_paid are ignored — no DB write until fully paid.
 export async function applySubscriptionStatus(
   supabase: ServiceClient,
   checkout: CheckoutRow,
@@ -167,35 +120,19 @@ export async function applySubscriptionStatus(
     (typeof payment?.payment_status === "string" &&
       SUBSCRIPTION_PAID.has(payment.payment_status.toLowerCase()))
 
-  if (fulfilled) {
-    const { error } = await supabase.rpc("fulfill_checkout", {
-      p_order_id: checkout.id,
-      p_payment_id:
-        payment?.payment_id != null ? String(payment.payment_id) : "",
-      p_nowpayments_status: "finished",
-    })
-    if (error) {
-      console.error("[payments] subscription fulfill rpc failed", {
-        orderId: checkout.id,
-        error: error.message,
-      })
-    }
-    return
-  }
+  // No database change unless the subscription is in a paid state.
+  if (!fulfilled) return
 
-  const internalStatus = SUBSCRIPTION_STATUS_MAP[key] ?? "awaiting_payment"
-  const { error: updateError } = await supabase
-    .from("checkouts")
-    .update({
-      status: internalStatus,
-      nowpayments_status: status,
-      ipn_count: checkout.ipn_count ? checkout.ipn_count + 1 : 1,
-    })
-    .eq("id", checkout.id)
-  if (updateError) {
-    console.warn("[payments] subscription status update failed", {
+  const { error } = await supabase.rpc("fulfill_checkout", {
+    p_order_id: checkout.id,
+    p_payment_id:
+      payment?.payment_id != null ? String(payment.payment_id) : "",
+    p_nowpayments_status: "finished",
+  })
+  if (error) {
+    console.error("[payments] subscription fulfill rpc failed", {
       orderId: checkout.id,
-      error: updateError.message,
+      error: error.message,
     })
   }
 }

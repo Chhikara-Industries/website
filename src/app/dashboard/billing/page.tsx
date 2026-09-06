@@ -1,7 +1,7 @@
 import type { Metadata } from "next"
 import { Landmark, LockKeyhole } from "lucide-react"
 
-import { BillingCheckout } from "@/components/dashboard/billing-checkout"
+import { BillingPlans } from "@/components/dashboard/billing-plans"
 import { PaymentStatus } from "@/components/dashboard/payment-status"
 import { requireDashboardAccess } from "@/lib/dal"
 
@@ -18,7 +18,7 @@ export default async function BillingPage({
   const { status, order_id } = await searchParams
 
   return (
-    <div className="mx-auto max-w-3xl space-y-6">
+    <div className="mx-auto max-w-4xl space-y-6">
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">Billing</h1>
         <p className="mt-1 font-mono text-xs text-muted-foreground">
@@ -34,7 +34,7 @@ export default async function BillingPage({
         </div>
       ) : null}
 
-      <BillingCheckout />
+      <BillingPlans />
 
       <div className="grid gap-4 sm:grid-cols-2">
         <div className="rounded-xl border border-border bg-card/50 p-5">

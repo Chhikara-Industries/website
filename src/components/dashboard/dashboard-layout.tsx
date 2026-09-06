@@ -67,6 +67,9 @@ const pageTitles: Record<string, string> = {
 }
 
 function findTitle(pathname: string) {
+  if (pathname.startsWith("/dashboard/billing/subscribe/")) return "Checkout"
+  if (pathname.startsWith("/dashboard/billing/buy/")) return "Checkout"
+  if (pathname.startsWith("/dashboard/billing/payments/status")) return "Payment"
   return pageTitles[pathname] ?? "Dashboard"
 }
 

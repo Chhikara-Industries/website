@@ -10,8 +10,11 @@ import {
 import { createClient } from "@/lib/supabase/server"
 import { createServiceClient } from "@/lib/supabase/service"
 import {
+  cancelEmailSubscription,
   createDirectPayment,
   createEmailSubscription,
+  isValidCryptoAddress,
+  listSubscriptions,
   NowPaymentsError,
   nowPaymentsPlanIdFor,
 } from "@/lib/nowpayments"
@@ -59,6 +62,14 @@ export async function createCheckout(
     return { errors: {}, message: "Unsupported cryptocurrency." }
   }
   const selectedCrypto = crypto as CheckoutCrypto
+  const walletAddress = String(formData.get("wallet") ?? "").trim()
+  if (!isValidCryptoAddress(walletAddress, selectedCrypto)) {
+    return {
+      errors: {
+        wallet: [`Enter a valid ${selectedCrypto.toUpperCase()} wallet address to receive payouts/refunds.`],
+      },
+    }
+  }
 
   let amountUsd = 0
   let credits = 0
@@ -120,6 +131,7 @@ export async function createCheckout(
       amount_usd: amountUsd,
       currency: "usd",
       status: "pending",
+      wallet_address: walletAddress,
       credits,
       plan,
       interval_days: intervalDays,
@@ -137,6 +149,8 @@ export async function createCheckout(
         orderId,
         orderDescription: item,
         selectedCrypto,
+        payoutAddress: walletAddress,
+        payoutCurrency: selectedCrypto,
       })
     } catch (e) {
       console.error("[billing] payment creation failed", {
@@ -197,7 +211,73 @@ export async function createCheckout(
     }
   }
 
+  // NOWPayments allows one email subscription per plan. If our records already
+  // show this user subscribed to this plan, don't create a second one.
+  const { data: existingSub } = await supabase
+    .from("subscriptions")
+    .select("plan, status, current_period_end")
+    .eq("user_id", user.id)
+    .maybeSingle()
+  if (existingSub && existingSub.plan === plan) {
+    const periodEnd = existingSub.current_period_end
+    const active =
+      existingSub.status === "active" &&
+      (!periodEnd || new Date(periodEnd).getTime() > Date.now())
+    return {
+      errors: {},
+      message: active
+        ? `${item} is already active on your account${
+            periodEnd
+              ? ` through ${new Date(periodEnd).toLocaleDateString()}`
+              : ""
+          }. Manage it from the billing page.`
+        : `${item} is already on your account. Refresh the billing page to see its status.`,
+    }
+  }
+
+  // A subscription link may already be pending (owed payment, expired link),
+  // which ALSO blocks re-subscribing the same email/plan on NOWPayments.
+  const { data: pendingSub } = await supabase
+    .from("checkouts")
+    .select("id")
+    .eq("user_id", user.id)
+    .eq("mode", "subscription")
+    .eq("plan", plan)
+    .eq("status", "awaiting_payment")
+    .maybeSingle()
+  if (pendingSub) {
+    return {
+      errors: {},
+      message: `${item} is already pending for ${user.email}. Open the payment link NOWPayments emailed you to finish paying.`,
+    }
+  }
+
+  const SUBSCRIPTION_PAID = new Set(["finished", "paid", "active"])
+
+  // NOWPayments registers the email the moment a subscription is created
+  // (WAITING_PAY), even before any payment. That slot blocks re-subscribing,
+  // so when creating a fresh subscription hits "already subscribed",
+  // release the user's unpaid entries for this plan first, then retry.
+  const releaseStaleSubscriptions = async (): Promise<boolean> => {
+    try {
+      const list = await listSubscriptions({ planId: nowPlanId, limit: 500 })
+      const mine = list.filter(
+        (s) =>
+          s.email?.toLowerCase() === user.email!.toLowerCase() &&
+          !SUBSCRIPTION_PAID.has(s.status.toLowerCase())
+      )
+      if (mine.length === 0) return false
+      for (const item of mine) {
+        await cancelEmailSubscription(item.id)
+      }
+      return true
+    } catch {
+      return false
+    }
+  }
+
   let subscription
+  let staleReleased = false
   try {
     subscription = await createEmailSubscription({
       planId: nowPlanId,
@@ -211,15 +291,49 @@ export async function createCheckout(
     })
     const isAuthFailure =
       e instanceof NowPaymentsError && e.status === 401
-    return {
-      errors: {},
-      message: `Could not start subscription. ${
-        isAuthFailure
-          ? "The payment provider rejected the credentials. Refresh NOWPAYMENTS_EMAIL/NOWPAYMENTS_PASSWORD and try again."
-          : e instanceof Error
-            ? e.message
-            : "Please try again later."
-      }`,
+    const isAlreadySubscribed =
+      e instanceof NowPaymentsError && /already subscribed/i.test(e.message)
+    if (!isAuthFailure && isAlreadySubscribed) {
+      staleReleased = await releaseStaleSubscriptions()
+      if (staleReleased) {
+        // Mark any older unpaid checkouts for this plan as cancelled so they
+        // no longer count as pending.
+        await supabase
+          .from("checkouts")
+          .update({ status: "cancelled", nowpayments_status: "cancelled" })
+          .eq("user_id", user.id)
+          .eq("mode", "subscription")
+          .eq("plan", plan)
+          .eq("status", "awaiting_payment")
+        try {
+          subscription = await createEmailSubscription({
+            planId: nowPlanId,
+            email: user.email,
+          })
+        } catch (e2) {
+          console.error("[billing] fresh subscription failed after release", {
+            orderId,
+            planKey,
+            error: e2 instanceof Error ? e2.message : "unknown",
+          })
+        }
+      }
+    }
+    if (!subscription) {
+      return {
+        errors: {},
+        message: `Could not start subscription. ${
+          isAuthFailure
+            ? "The payment provider rejected the credentials. Refresh NOWPAYMENTS_EMAIL/NOWPAYMENTS_PASSWORD and try again."
+            : isAlreadySubscribed
+              ? staleReleased
+                ? "The old unpaid subscription was released, but creating a new one just failed. Please try again."
+                : `${item} is registered to this email on NOWPayments (one subscription per email per plan) and it couldn't be released automatically. Open the payment link NOWPayments emailed to ${user.email}, or contact support to release the plan.`
+              : e instanceof Error
+                ? e.message
+                : "Please try again later."
+        }`,
+      }
     }
   }
 
@@ -232,6 +346,7 @@ export async function createCheckout(
     amount_usd: amountUsd,
     currency: "usd",
     status: "awaiting_payment",
+    wallet_address: walletAddress,
     credits: 0,
     plan,
     interval_days: intervalDays,

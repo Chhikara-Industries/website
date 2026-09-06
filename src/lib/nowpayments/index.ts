@@ -11,10 +11,13 @@ import {
   getNowPaymentsPlanId,
   SITE_URL,
 } from "@/lib/env"
+import type { PayCrypto } from "@/lib/crypto-address"
 
 const API_BASE = "https://api.nowpayments.io/v1"
 
-export type NowPaymentsCrypto = "btc" | "eth" | "sol"
+export type NowPaymentsCrypto = PayCrypto
+
+export { isValidCryptoAddress, PAY_CRYPTOS } from "@/lib/crypto-address"
 
 // ---------------------------------------------------------------------------
 // Errors
@@ -327,11 +330,15 @@ export async function createDirectPayment({
   orderId,
   orderDescription,
   selectedCrypto,
+  payoutAddress,
+  payoutCurrency,
 }: {
   amountUsd: number
   orderId: string
   orderDescription: string
   selectedCrypto: NowPaymentsCrypto
+  payoutAddress?: string | null
+  payoutCurrency?: string | null
 }): Promise<CreateDirectPaymentResult> {
   const res = await apiFetch("/payment", {
     method: "POST",
@@ -345,6 +352,14 @@ export async function createDirectPayment({
       success_url: `${SITE_URL}/dashboard/billing?status=success&order_id=${orderId}`,
       cancel_url: `${SITE_URL}/dashboard/billing?status=cancelled&order_id=${orderId}`,
       is_fixed_rate: true,
+      // Customer payout address (refund / settlement override). Sent only when
+      // provided; NOWPayments settles to this address for the selected asset.
+      ...(payoutAddress
+        ? {
+            payout_address: payoutAddress,
+            payout_currency: payoutCurrency ?? selectedCrypto,
+          }
+        : {}),
     }),
   })
 
@@ -550,6 +565,77 @@ export async function getSubscriptionPlan(planId: string): Promise<{
     amount: Number(item.amount ?? 0),
     currency: String(item.currency ?? "usd"),
   }
+}
+
+export type NowPaymentsSubscriptionListItem = {
+  id: string
+  subscriptionPlanId?: string
+  isActive: boolean
+  status: string
+  email?: string
+}
+
+// Lists the merchant's email subscriptions. NOWPayments allows one
+// subscription per email per plan, so stale unpaid (WAITING_PAY) entries
+// block re-subscribing until they are cancelled.
+export async function listSubscriptions({
+  planId,
+  status,
+  limit = 500,
+  offset,
+}: {
+  planId?: string
+  status?: string
+  limit?: number
+  offset?: number
+} = {}): Promise<NowPaymentsSubscriptionListItem[]> {
+  const params = new URLSearchParams()
+  if (planId) params.set("subscription_plan_id", planId)
+  if (status) params.set("status", status)
+  params.set("limit", String(limit))
+  if (offset != null) params.set("offset", String(offset))
+
+  const { body } = await apiFetch(
+    `/subscriptions?${params.toString()}`,
+    { method: "GET" },
+    { bearerAuth: true }
+  )
+  const list = Array.isArray(body.result)
+    ? body.result
+    : Array.isArray(body)
+      ? body
+      : []
+  return list.map((item) => {
+    const record = item as Record<string, unknown>
+    const subscriber = (record.subscriber ?? null) as Record<string, unknown> | null
+    return {
+      id: String(record.id ?? ""),
+      subscriptionPlanId:
+        record.subscription_plan_id != null
+          ? String(record.subscription_plan_id)
+          : undefined,
+      isActive: Boolean(record.is_active),
+      status: String(record.status ?? ""),
+      email:
+        subscriber && typeof subscriber.email === "string"
+          ? subscriber.email
+          : undefined,
+    }
+  })
+}
+
+// Cancels an email subscription (DELETE /v1/subscriptions/:id), releasing the
+// email/plan slot so a fresh subscription can be created.
+export async function cancelEmailSubscription(
+  subscriptionId: string
+): Promise<boolean> {
+  if (!subscriptionId) return false
+  await apiFetch(
+    `/subscriptions/${subscriptionId}`,
+    { method: "DELETE" },
+    { bearerAuth: true }
+  )
+  return true
 }
 
 // Config-level NOWPayments plan ids for Pro / Ultimate (see env.ts).
