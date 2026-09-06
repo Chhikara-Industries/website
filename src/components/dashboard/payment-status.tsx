@@ -7,6 +7,7 @@ import {
   CircleAlert,
   Copy,
   Loader2,
+  Mail,
   Wallet2,
   XCircle,
 } from "lucide-react"
@@ -22,6 +23,7 @@ type StatusState = {
   payAmount: number | null
   amountUsd: number | null
   item: string | null
+  mode?: string | null
 }
 
 type PollResult =
@@ -93,6 +95,7 @@ export function PaymentStatus({ orderId }: { orderId: string }) {
   const address = result?.ok ? result.data.payAddress : null
   const payCurrency = result?.ok ? result.data.payCurrency : null
   const payAmount = result?.ok ? result.data.payAmount : null
+  const isSubscription = result?.ok && result.data.mode === "subscription"
 
   useEffect(() => {
     if (!address) return
@@ -139,7 +142,25 @@ export function PaymentStatus({ orderId }: { orderId: string }) {
         </div>
       ) : null}
 
-      {result?.ok && paying && address ? (
+      {result?.ok && paying && isSubscription ? (
+        <div className="rounded-xl border border-primary/40 bg-card p-5">
+          <p className="flex items-center gap-2 font-mono text-xs uppercase tracking-wider text-primary">
+            <Mail className="size-4" />
+            Payment link sent
+          </p>
+          <p className="mt-3 text-sm leading-relaxed text-foreground/85">
+            NOWPayments emailed a secure payment link to the email on your
+            account. Open it and pay with BTC, ETH, SOL or any supported asset
+            to activate your plan. Your subscription renews automatically on
+            the interval.
+          </p>
+          <p className="mt-3 rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2.5 text-sm text-foreground/80">
+            Your plan activates only after the payment is confirmed on-chain.
+          </p>
+        </div>
+      ) : null}
+
+      {result?.ok && paying && address && !isSubscription ? (
         <div className="rounded-xl border border-primary/40 bg-card p-5">
           <p className="flex items-center gap-2 font-mono text-xs uppercase tracking-wider text-primary">
             <Wallet2 className="size-4" />

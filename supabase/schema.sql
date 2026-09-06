@@ -163,6 +163,7 @@ create table if not exists public.subscriptions (
   status text not null default 'active',
   nowpayments_subscription_id text,
   nowpayments_plan_id text,
+  nowpayments_status text,
   interval_days integer not null default 30,
   current_period_start timestamptz,
   current_period_end timestamptz,
@@ -475,11 +476,11 @@ begin
 
     insert into public.subscriptions (
       user_id, plan, status, interval_days, nowpayments_plan_id,
-      nowpayments_subscription_id, current_period_start, current_period_end,
-      cancelled_at, updated_at
+      nowpayments_subscription_id, nowpayments_status,
+      current_period_start, current_period_end, cancelled_at, updated_at
     ) values (
       v_checkout.user_id, v_checkout.plan, 'active', v_interval,
-      v_nowpayments_plan, v_nowpayments_sub,
+      v_nowpayments_plan, v_nowpayments_sub, 'finished',
       now(), now() + make_interval(days => v_interval),
       null, now()
     )
@@ -495,6 +496,7 @@ begin
             excluded.nowpayments_subscription_id,
             public.subscriptions.nowpayments_subscription_id
           ),
+          nowpayments_status = 'finished',
           current_period_start = excluded.current_period_start,
           current_period_end = excluded.current_period_end,
           cancelled_at = null,
@@ -599,6 +601,7 @@ begin
   update public.subscriptions
      set current_period_start = now(),
          current_period_end = now() + make_interval(days => v_sub.interval_days),
+         nowpayments_status = p_status,
          updated_at = now()
    where user_id = v_sub.user_id;
 

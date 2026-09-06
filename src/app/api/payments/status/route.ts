@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from "next/server"
 
-import { getPaymentStatus } from "@/lib/nowpayments"
+import { getPaymentStatus, getSubscription } from "@/lib/nowpayments"
 import { supabaseConfigured } from "@/lib/env"
 import { createClient } from "@/lib/supabase/server"
 import { createServiceClient } from "@/lib/supabase/service"
-import { applyPaymentStatus } from "@/lib/payments"
+import { applyPaymentStatus, applySubscriptionStatus } from "@/lib/payments"
 
 // Throttle direct NOWPayments API checks so concurrent pollers don't hammer
 // the payment-status endpoint (our own state mirror is the fast path).
@@ -93,38 +93,70 @@ export async function GET(request: NextRequest) {
   // what lets the page confirm a payment even when the IPN webhook can't reach
   // the server (e.g. local development) — and it keeps the IPN as the source
   // of truth, never a client that reports its own payment.
-  if (
-    service &&
-    row.status === "awaiting_payment" &&
-    row.nowpayments_payment_id &&
-    shouldCrossCheck(row.nowpayments_payment_id)
-  ) {
-    try {
-      const remote = await getPaymentStatus(row.nowpayments_payment_id)
-      if (
-        remote.payment_status &&
-        remote.payment_status !== row.nowpayments_status &&
-        remote.payment_status !== "waiting"
-      ) {
-        await applyPaymentStatus(
-          service,
-          {
-            ...row,
-            amount_usd: row.amount_usd ?? 0,
-            credits: row.credits ?? 0,
-            ipn_count: row.ipn_count ?? 0,
-          },
-          remote.payment_status,
-          remote
-        )
-        const latest = await query(service)
-        checkout = latest.error || !latest.data ? checkout : latest.data
+  if (service && row.status === "awaiting_payment") {
+    if (
+      row.mode === "subscription" &&
+      row.nowpayments_subscription_id &&
+      shouldCrossCheck(`sub:${row.nowpayments_subscription_id}`)
+    ) {
+      try {
+        const sub = await getSubscription(row.nowpayments_subscription_id)
+        if (
+          sub.status &&
+          sub.status.toLowerCase() !==
+            (row.nowpayments_status ?? "").toLowerCase()
+        ) {
+          await applySubscriptionStatus(
+            service,
+            {
+              ...row,
+              amount_usd: row.amount_usd ?? 0,
+              credits: row.credits ?? 0,
+              ipn_count: row.ipn_count ?? 0,
+            },
+            sub.status,
+            sub.payment ?? null
+          )
+          const latest = await query(service)
+          checkout = latest.error || !latest.data ? checkout : latest.data
+        }
+      } catch (e) {
+        console.warn("[payments] subscription cross-check failed", {
+          subscriptionId: row.nowpayments_subscription_id,
+          error: e instanceof Error ? e.message : "unknown",
+        })
       }
-    } catch (e) {
-      console.warn("[payments] cross-check failed", {
-        paymentId: row.nowpayments_payment_id,
-        error: e instanceof Error ? e.message : "unknown",
-      })
+    } else if (
+      row.nowpayments_payment_id &&
+      shouldCrossCheck(row.nowpayments_payment_id)
+    ) {
+      try {
+        const remote = await getPaymentStatus(row.nowpayments_payment_id)
+        if (
+          remote.payment_status &&
+          remote.payment_status !== row.nowpayments_status &&
+          remote.payment_status !== "waiting"
+        ) {
+          await applyPaymentStatus(
+            service,
+            {
+              ...row,
+              amount_usd: row.amount_usd ?? 0,
+              credits: row.credits ?? 0,
+              ipn_count: row.ipn_count ?? 0,
+            },
+            remote.payment_status,
+            remote
+          )
+          const latest = await query(service)
+          checkout = latest.error || !latest.data ? checkout : latest.data
+        }
+      } catch (e) {
+        console.warn("[payments] cross-check failed", {
+          paymentId: row.nowpayments_payment_id,
+          error: e instanceof Error ? e.message : "unknown",
+        })
+      }
     }
   }
 
@@ -141,6 +173,7 @@ export async function GET(request: NextRequest) {
       payAmount: finalRow.pay_amount,
       amountUsd: finalRow.amount_usd,
       item: finalRow.item,
+      mode: finalRow.mode,
     },
     { status: 200 }
   )

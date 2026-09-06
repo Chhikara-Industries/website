@@ -2,10 +2,18 @@
 
 import { randomUUID } from "node:crypto"
 
-import { nowPaymentsConfigured, supabaseConfigured } from "@/lib/env"
+import {
+  nowPaymentsConfigured,
+  nowPaymentsSubscriptionConfigured,
+  supabaseConfigured,
+} from "@/lib/env"
 import { createClient } from "@/lib/supabase/server"
 import { createServiceClient } from "@/lib/supabase/service"
-import { createDirectPayment, nowPaymentsPlanIdFor } from "@/lib/nowpayments"
+import {
+  createDirectPayment,
+  createEmailSubscription,
+  nowPaymentsPlanIdFor,
+} from "@/lib/nowpayments"
 import { MIN_CREDITS } from "@/lib/checkout"
 import { getTokenPackage } from "@/lib/token-packages"
 import { plans, type PlanId } from "@/lib/plans"
@@ -92,13 +100,121 @@ export async function createCheckout(
     }
   }
 
-  if (!nowPaymentsConfigured()) {
+  const orderId = randomUUID()
+
+  // One-off token purchase: crypto deposit via direct payment.
+  if (mode === "credits") {
+    if (!nowPaymentsConfigured()) {
+      return {
+        message: `Demo — ${item} costs $${amountUsd.toFixed(2)}. Set NOWPAYMENTS_API_KEY to go live.`,
+      }
+    }
+
+    const row = {
+      id: orderId,
+      user_id: user.id,
+      item,
+      mode,
+      crypto: selectedCrypto,
+      amount_usd: amountUsd,
+      currency: "usd",
+      status: "pending",
+      credits,
+      plan,
+      interval_days: intervalDays,
+    }
+
+    const insertError = await insertCheckout(supabase, row)
+    if (typeof insertError === "string") {
+      return { errors: {}, message: insertError }
+    }
+
+    let payment
+    try {
+      payment = await createDirectPayment({
+        amountUsd,
+        orderId,
+        orderDescription: item,
+        selectedCrypto,
+      })
+    } catch (e) {
+      console.error("[billing] payment creation failed", {
+        orderId,
+        mode,
+        error: e instanceof Error ? e.message : "unknown",
+      })
+      return {
+        errors: {},
+        message: `Could not start checkout. ${
+          e instanceof Error ? e.message : "Please try again later."
+        }`,
+      }
+    }
+
+    const update = {
+      status: "awaiting_payment",
+      nowpayments_payment_id: payment.paymentId,
+      nowpayments_purchase_id: payment.purchaseId ?? null,
+      nowpayments_status: "waiting",
+      pay_address: payment.payAddress,
+      pay_currency: payment.payCurrency,
+      pay_amount: payment.payAmount,
+    }
+
+    const updateError = await updateCheckout(supabase, orderId, update)
+    if (typeof updateError === "string") {
+      return { errors: {}, message: updateError }
+    }
+
     return {
-      message: `Demo — ${item} costs $${amountUsd.toFixed(2)}. Set NOWPAYMENTS_API_KEY to go live.`,
+      orderId,
+      message: `Checkout started for ${item}. Send exactly ${payment.payAmount} ${payment.payCurrency.toUpperCase()} to the address shown.`,
     }
   }
 
-  const orderId = randomUUID()
+  // Subscription: create the recurring subscription on NOWPayments up front.
+  // NOWPayments emails the customer a payment link; the plan only activates in
+  // our Supabase once that payment finishes (via IPN or status cross-check).
+  if (!nowPaymentsSubscriptionConfigured()) {
+    return {
+      errors: {},
+      message: "Subscriptions aren't set up yet on the server.",
+    }
+  }
+  if (!user.email) {
+    return {
+      errors: {},
+      message: "Your account needs an email address to subscribe.",
+    }
+  }
+  const planKey = plan === "ultimate" ? "ultimate" : "pro"
+  const nowPlanId = nowPaymentsPlanIdFor(planKey)
+  if (!nowPlanId) {
+    return {
+      errors: {},
+      message: "This plan isn't set up for billing yet.",
+    }
+  }
+
+  let subscription
+  try {
+    subscription = await createEmailSubscription({
+      planId: nowPlanId,
+      email: user.email,
+    })
+  } catch (e) {
+    console.error("[billing] subscription creation failed", {
+      orderId,
+      planKey,
+      error: e instanceof Error ? e.message : "unknown",
+    })
+    return {
+      errors: {},
+      message: `Could not start subscription. ${
+        e instanceof Error ? e.message : "Please try again later."
+      }`,
+    }
+  }
 
   const row = {
     id: orderId,
@@ -108,26 +224,39 @@ export async function createCheckout(
     crypto: selectedCrypto,
     amount_usd: amountUsd,
     currency: "usd",
-    status: "pending",
-    credits,
+    status: "awaiting_payment",
+    credits: 0,
     plan,
     interval_days: intervalDays,
-    nowpayments_plan_id:
-      mode === "subscription" ? nowPaymentsPlanIdFor(plan as "pro" | "ultimate") || null : null,
+    nowpayments_plan_id: nowPlanId,
+    nowpayments_subscription_id: subscription.subscriptionId,
+    nowpayments_status: subscription.status || "WAITING_PAY",
   }
 
-  const { error: insertError } = await supabase.from("checkouts").insert(row)
+  const insertError = await insertCheckout(supabase, row)
+  if (typeof insertError === "string") {
+    return { errors: {}, message: insertError }
+  }
 
-  // If the anon insert is blocked (RLS policies not applied yet) fall back to
-  // the service-role client so the order is still recorded. The row always
-  // belongs to the signed-in user.
-  if (insertError) {
+  return {
+    orderId,
+    message: `Subscription started for ${item}. NOWPayments emailed a secure payment link to ${user.email} — open it and pay to activate your plan. This page confirms automatically once paid.`,
+  }
+}
+
+// Records the public order. If the anon insert is blocked (RLS policies not
+// applied yet) it falls back to the service-role client so the order is still
+// recorded. The row always belongs to the signed-in user. Returns an error
+// message string when the insert could not be recorded, or null.
+async function insertCheckout(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  row: Record<string, unknown>
+): Promise<string | null> {
+  const { error } = await supabase.from("checkouts").insert(row)
+  if (error) {
     const service = createServiceClient()
-    if (insertError.code === "42P01" || !service) {
-      return {
-        errors: {},
-        message: "Checkout isn't configured yet. Run the database migration.",
-      }
+    if (error.code === "42P01" || !service) {
+      return "Checkout isn't configured yet. Run the database migration."
     }
     const { error: serviceError } = await service.from("checkouts").insert(row)
     if (serviceError) {
@@ -135,58 +264,31 @@ export async function createCheckout(
         code: serviceError.code,
         message: serviceError.message,
       })
-      return {
-        errors: {},
-        message: "Checkout could not be recorded. Please try again.",
-      }
+      return "Checkout could not be recorded. Please try again."
     }
   }
+  return null
+}
 
-  let payment
-  try {
-    payment = await createDirectPayment({
-      amountUsd,
-      orderId,
-      orderDescription: item,
-      selectedCrypto,
-    })
-  } catch (e) {
-    console.error("[billing] payment creation failed", {
-      orderId,
-      mode,
-      error: e instanceof Error ? e.message : "unknown",
-    })
-    return {
-      errors: {},
-      message: `Could not start checkout. ${
-        e instanceof Error ? e.message : "Please try again later."
-      }`,
-    }
-  }
-
-  const update = {
-    status: "awaiting_payment",
-    nowpayments_payment_id: payment.paymentId,
-    nowpayments_purchase_id: payment.purchaseId ?? null,
-    nowpayments_status: "waiting",
-    pay_address: payment.payAddress,
-    pay_currency: payment.payCurrency,
-    pay_amount: payment.payAmount,
-  }
-
-  const { error: updateError } = await supabase
+async function updateCheckout(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  orderId: string,
+  update: Record<string, unknown>
+): Promise<string | null> {
+  const { error } = await supabase
     .from("checkouts")
     .update(update)
     .eq("id", orderId)
-  if (updateError) {
+  if (error) {
     const service = createServiceClient()
     if (service) {
-      await service.from("checkouts").update(update).eq("id", orderId)
+      const { error: serviceError } = await service
+        .from("checkouts")
+        .update(update)
+        .eq("id", orderId)
+      if (!serviceError) return null
     }
+    return "Checkout could not be recorded. Please try again."
   }
-
-  return {
-    orderId,
-    message: `Checkout started for ${item}. Send exactly ${payment.payAmount} ${payment.payCurrency.toUpperCase()} to the address shown.`,
-  }
+  return null
 }

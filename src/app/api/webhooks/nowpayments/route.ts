@@ -102,8 +102,27 @@ async function recordIpn(
   status: string,
   payment: NowPaymentsPayment | null
 ) {
-  // Recurring renewal: no order_id, but the subscription is linked.
+  // Recurring renewal or a subscription payment: no order_id, but the
+  // subscription is linked. A checkout still waiting on this subscription is
+  // the initial activation; an already-paid one means a renewal of an
+  // active subscription row.
   if (!orderId && subscriptionId) {
+    const { data: linked, error: linkedError } = await supabase
+      .from("checkouts")
+      .select("*")
+      .eq("nowpayments_subscription_id", subscriptionId)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle()
+    if (!linkedError && linked) {
+      const linkedStatus = String((linked as Record<string, unknown>).status ?? "")
+      if (linkedStatus === "paid") {
+        await applyRenewal(supabase, subscriptionId, status, payment)
+      } else {
+        await applyPaymentStatus(supabase, linked as CheckoutRow, status, payment)
+      }
+      return
+    }
     await applyRenewal(supabase, subscriptionId, status, payment)
     return
   }

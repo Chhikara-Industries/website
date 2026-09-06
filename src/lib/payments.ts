@@ -41,6 +41,28 @@ export const STATUS_MAP: Record<string, string> = {
 export const FULFILL_STATUS = "finished"
 const AMOUNT_TOLERANCE = 0.99
 
+// NOWPayments /v1/subscriptions statuses mirrored to the internal order
+// status. Only a paid/active/finished subscription fulfills the plan;
+// WAITING_PAY / partially_paid MUST NOT activate anything.
+const SUBSCRIPTION_STATUS_MAP: Record<string, string> = {
+  waiting_pay: "awaiting_payment",
+  waiting: "awaiting_payment",
+  confirming: "awaiting_payment",
+  confirmed: "awaiting_payment",
+  sending: "awaiting_payment",
+  partially_paid: "awaiting_payment",
+  finished: "paid",
+  paid: "paid",
+  active: "paid",
+  failed: "failed",
+  refunded: "failed",
+  cancelled: "failed",
+  canceled: "failed",
+  expired: "expired",
+}
+
+const SUBSCRIPTION_PAID = new Set(["finished", "paid", "active"])
+
 // Acceptance: a full payment (finished) for at least the settled amount.
 export function amountSatisfied(
   orderAmountUsd: number,
@@ -130,13 +152,64 @@ export async function applyRenewal(
   }
 }
 
+// Mirrors a NOWPayments subscription status onto a subscription-mode checkout.
+// A paid/active/finished subscription activates the plan via the same
+// idempotent fulfill_checkout RPC; WAITING_PAY / partially_paid only mirror.
+export async function applySubscriptionStatus(
+  supabase: ServiceClient,
+  checkout: CheckoutRow,
+  status: string,
+  payment: Partial<NowPaymentsPayment> | null
+) {
+  const key = status.toLowerCase().replace(/[\s-]+/g, "_")
+  const fulfilled =
+    SUBSCRIPTION_PAID.has(key) ||
+    (typeof payment?.payment_status === "string" &&
+      SUBSCRIPTION_PAID.has(payment.payment_status.toLowerCase()))
+
+  if (fulfilled) {
+    const { error } = await supabase.rpc("fulfill_checkout", {
+      p_order_id: checkout.id,
+      p_payment_id:
+        payment?.payment_id != null ? String(payment.payment_id) : "",
+      p_nowpayments_status: "finished",
+    })
+    if (error) {
+      console.error("[payments] subscription fulfill rpc failed", {
+        orderId: checkout.id,
+        error: error.message,
+      })
+    }
+    return
+  }
+
+  const internalStatus = SUBSCRIPTION_STATUS_MAP[key] ?? "awaiting_payment"
+  const { error: updateError } = await supabase
+    .from("checkouts")
+    .update({
+      status: internalStatus,
+      nowpayments_status: status,
+      ipn_count: checkout.ipn_count ? checkout.ipn_count + 1 : 1,
+    })
+    .eq("id", checkout.id)
+  if (updateError) {
+    console.warn("[payments] subscription status update failed", {
+      orderId: checkout.id,
+      error: updateError.message,
+    })
+  }
+}
+
 // Best-effort: hook the initial subscription payment into NOWPayments'
-// recurring billing so the next period renews automatically.
+// recurring billing so the next period renews automatically. In the normal
+// flow the subscription was already created at checkout time, so this only
+// fills the gap for pre-existing (legacy) subscription checkouts.
 async function attachRecurringSubscription(
   supabase: ServiceClient,
   checkout: CheckoutRow
 ) {
   if (checkout.mode !== "subscription" || !checkout.nowpayments_plan_id) return
+  if (checkout.nowpayments_subscription_id) return
   try {
     const profile = await supabase.auth.admin.getUserById(checkout.user_id)
     const email = profile.data.user?.email
@@ -147,7 +220,6 @@ async function attachRecurringSubscription(
     const result = await createEmailSubscription({
       planId: checkout.nowpayments_plan_id,
       email,
-      orderId: checkout.id,
     })
     await supabase
       .from("checkouts")
