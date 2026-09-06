@@ -9,6 +9,14 @@ export function nowPaymentsConfigured() {
   return Boolean(process.env.NOWPAYMENTS_API_KEY)
 }
 
+// Recurring subscription endpoints require BOTH the API key and a Bearer JWT
+// (generated in the NOWPayments dashboard). The JWT is server-only.
+export function nowPaymentsSubscriptionConfigured() {
+  return Boolean(
+    process.env.NOWPAYMENTS_API_KEY && process.env.NOWPAYMENTS_JWT_TOKEN
+  )
+}
+
 export function supabaseServiceConfigured() {
   return Boolean(process.env.SUPABASE_SERVICE_ROLE_KEY)
 }
@@ -23,6 +31,10 @@ export function getNowPaymentsApiKey() {
 
 export function getNowPaymentsIpnSecret() {
   return process.env.NOWPAYMENTS_IPN_SECRET ?? ""
+}
+
+export function getNowPaymentsJwtToken() {
+  return process.env.NOWPAYMENTS_JWT_TOKEN ?? ""
 }
 
 export function getSupabaseUrl() {

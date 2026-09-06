@@ -5,6 +5,7 @@ import crypto from "node:crypto"
 import {
   getNowPaymentsApiKey,
   getNowPaymentsIpnSecret,
+  getNowPaymentsJwtToken,
   getNowPaymentsPlanId,
   SITE_URL,
 } from "@/lib/env"
@@ -102,19 +103,25 @@ export function verifyIpnSignature(payload: unknown, signature: string): boolean
 // ---------------------------------------------------------------------------
 async function apiFetch(
   path: string,
-  init: RequestInit = {}
+  init: RequestInit = {},
+  options: { bearerAuth?: boolean } = {}
 ): Promise<{
   status: number
   body: Record<string, unknown>
 }> {
   const apiKey = getNowPaymentsApiKey()
+  const headers: Record<string, string> = {
+    "x-api-key": apiKey,
+    "Content-Type": "application/json",
+    ...((init.headers as Record<string, string>) ?? {}),
+  }
+  // The /v1/subscriptions* endpoints require BOTH x-api-key and a Bearer JWT.
+  if (options.bearerAuth) {
+    headers["Authorization"] = `Bearer ${getNowPaymentsJwtToken()}`
+  }
   const res = await fetch(`${API_BASE}${path}`, {
     ...init,
-    headers: {
-      "x-api-key": apiKey,
-      "Content-Type": "application/json",
-      ...(init.headers ?? {}),
-    },
+    headers,
   })
 
   const body = (await res.json().catch(() => ({}))) as Record<string, unknown>
@@ -150,7 +157,9 @@ export async function createInvoice({
     body: JSON.stringify({
       price_amount: amountUsd,
       price_currency: "usd",
-      pay_currency: selectedCrypto ?? null,
+      ...(selectedCrypto
+        ? { pay_currency: selectedCrypto }
+        : {}),
       order_id: orderId,
       order_description: orderDescription,
       ipn_callback_url: `${SITE_URL}/api/webhooks/nowpayments`,
@@ -195,8 +204,68 @@ export async function getPaymentStatus(
 }
 
 // ---------------------------------------------------------------------------
+// Direct on-chain payment (no NOWPayments-hosted page)
+//
+// Creates a real deposit address + exact crypto amount that we render in our
+// own checkout UI. The customer pays from their wallet; IPNs arrive exactly
+// like the hosted-invoice flow. Fixed rate locks the settled fiat amount.
+// ---------------------------------------------------------------------------
+export type CreateDirectPaymentResult = {
+  paymentId: string
+  payCurrency: string
+  payAmount: number
+  payAddress: string
+  purchaseId?: string
+}
+
+export async function createDirectPayment({
+  amountUsd,
+  orderId,
+  orderDescription,
+  selectedCrypto,
+}: {
+  amountUsd: number
+  orderId: string
+  orderDescription: string
+  selectedCrypto: NowPaymentsCrypto
+}): Promise<CreateDirectPaymentResult> {
+  const res = await apiFetch("/payment", {
+    method: "POST",
+    body: JSON.stringify({
+      price_amount: amountUsd,
+      price_currency: "usd",
+      pay_currency: selectedCrypto,
+      order_id: orderId,
+      order_description: orderDescription,
+      ipn_callback_url: `${SITE_URL}/api/webhooks/nowpayments`,
+      success_url: `${SITE_URL}/dashboard/billing?status=success&order_id=${orderId}`,
+      cancel_url: `${SITE_URL}/dashboard/billing?status=cancelled&order_id=${orderId}`,
+      is_fixed_rate: true,
+    }),
+  })
+
+  const paymentId = res.body.payment_id
+  const payAddress = typeof res.body.pay_address === "string" ? res.body.pay_address : ""
+  if (paymentId == null || !payAddress) {
+    throw new NowPaymentsError(
+      "NOWPayments returned an incomplete payment address."
+    )
+  }
+
+  return {
+    paymentId: String(paymentId),
+    payCurrency: String(res.body.pay_currency ?? selectedCrypto),
+    payAmount: Number(res.body.pay_amount ?? 0),
+    payAddress,
+    purchaseId:
+      res.body.purchase_id != null ? String(res.body.purchase_id) : undefined,
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Subscriptions (recurring payments). Plans are configured ONCE and reused;
-// they are never re-created per checkout.
+// they are never re-created per checkout. The /v1/subscriptions* endpoints
+// authenticate with x-api-key AND a Bearer JWT.
 // ---------------------------------------------------------------------------
 export async function createSubscriptionPlan({
   title,
@@ -221,7 +290,7 @@ export async function createSubscriptionPlan({
       cancel_url: `${SITE_URL}/dashboard/billing?status=cancelled`,
       partially_paid_url: `${SITE_URL}/dashboard/billing?status=partially_paid`,
     }),
-  })
+  }, { bearerAuth: true })
 
   if (body.id == null) {
     throw new NowPaymentsError("NOWPayments returned an incomplete subscription plan.")
@@ -239,9 +308,14 @@ export async function createSubscriptionPlan({
 export async function getSubscriptionPlans(): Promise<
   { id: string; title: string; interval_day: number; amount: number; currency: string }[]
 > {
-  const { body } = await apiFetch("/subscriptions/plans", { method: "GET" })
-  const raw = body.result ?? body.data ?? body
-  if (!Array.isArray(raw)) return []
+  const { body } = await apiFetch("/subscriptions/plans", { method: "GET" }, { bearerAuth: true })
+  const raw = Array.isArray(body.result)
+    ? body.result
+    : Array.isArray(body)
+      ? body
+: body.result && typeof body.result === "object"
+          ? [body.result]
+          : []
   return raw.map((item) => ({
     id: String((item as Record<string, unknown>).id),
     title: String((item as Record<string, unknown>).title ?? ""),
@@ -251,29 +325,125 @@ export async function getSubscriptionPlans(): Promise<
   }))
 }
 
-// Email subscription: NOWPayments invoices the user's email on the interval.
-// Only meaningful when the merchant has recurring payments enabled.
+export type EmailSubscriptionResult = {
+  subscriptionId: string
+  isActive: boolean
+  status: string
+  email?: string
+}
+
+// Email subscription: NOWPayments emails the customer a payment link for the
+// plan interval. Only meaningful when the merchant has recurring payments
+// enabled. Verified response shape: { result: [ { id, subscription_plan_id,
+// is_active, status (WAITING_PAY while unpaid), subscriber } ] }.
 export async function createEmailSubscription({
   planId,
   email,
-  orderId,
 }: {
   planId: string
   email: string
-  orderId?: string
-}): Promise<{ subscriptionId: string }> {
+}): Promise<EmailSubscriptionResult> {
+  if (!getNowPaymentsJwtToken()) {
+    throw new NowPaymentsError(
+      "NOWPayments subscriptions require a JWT token (NOWPAYMENTS_JWT_TOKEN)."
+    )
+  }
   const { body } = await apiFetch("/subscriptions", {
     method: "POST",
-    body: JSON.stringify({
-      subscription_plan_id: planId,
-      email,
-      order_id: orderId,
-    }),
-  })
-  if (body.id == null) {
+    body: JSON.stringify({ subscription_plan_id: planId, email }),
+  }, { bearerAuth: true })
+
+  const list = Array.isArray(body.result)
+    ? body.result
+    : Array.isArray(body)
+      ? body
+      : []
+  const item = (list[0] ?? null) as Record<string, unknown> | null
+  if (!item || item.id == null) {
     throw new NowPaymentsError("NOWPayments returned an incomplete subscription.")
   }
-  return { subscriptionId: String(body.id) }
+  const subscriber = (item.subscriber ?? null) as Record<string, unknown> | null
+  return {
+    subscriptionId: String(item.id),
+    isActive: Boolean(item.is_active),
+    status: String(item.status ?? ""),
+    email:
+      subscriber && typeof subscriber.email === "string"
+        ? subscriber.email
+        : undefined,
+  }
+}
+
+export type NowPaymentsSubscription = {
+  id: string
+  subscriptionPlanId?: string
+  isActive: boolean
+  status: string
+  currency?: string
+  amount?: number
+  intervalDay?: number
+  email?: string
+  payment?: Partial<NowPaymentsPayment>
+}
+
+export async function getSubscription(
+  subscriptionId: string
+): Promise<NowPaymentsSubscription> {
+  const { body } = await apiFetch(
+    `/subscriptions/${subscriptionId}`,
+    { method: "GET" },
+    { bearerAuth: true }
+  )
+  const item = (Array.isArray(body.result) ? body.result[0] : body.result) as
+    | Record<string, unknown>
+    | undefined
+  if (!item || item.id == null) {
+    throw new NowPaymentsError("NOWPayments returned an incomplete subscription.")
+  }
+  const subscriber = (item.subscriber ?? null) as Record<string, unknown> | null
+  const payment = (item.payment ?? null) as Partial<NowPaymentsPayment> | null
+  return {
+    id: String(item.id),
+    subscriptionPlanId:
+      item.subscription_plan_id != null ? String(item.subscription_plan_id) : undefined,
+    isActive: Boolean(item.is_active),
+    status: String(item.status ?? ""),
+    currency: typeof item.currency === "string" ? item.currency : undefined,
+    amount: item.amount != null ? Number(item.amount) : undefined,
+    intervalDay: item.interval_day != null ? Number(item.interval_day) : undefined,
+    email:
+      subscriber && typeof subscriber.email === "string"
+        ? subscriber.email
+        : undefined,
+    payment: payment ?? undefined,
+  }
+}
+
+export async function getSubscriptionPlan(planId: string): Promise<{
+  id: string
+  title: string
+  interval_day: number
+  amount: number
+  currency: string
+}> {
+  const { body } = await apiFetch(
+    `/subscriptions/plans/${planId}`,
+    { method: "GET" },
+    { bearerAuth: true }
+  )
+  const item = (Array.isArray(body.result) ? body.result[0] : body.result) as
+    | Record<string, unknown>
+    | undefined
+  if (!item || item.id == null) {
+    throw new NowPaymentsError("NOWPayments returned an incomplete subscription plan.")
+  }
+  return {
+    id: String(item.id),
+    title: String(item.title ?? ""),
+    interval_day: Number(item.interval_day ?? 0),
+    amount: Number(item.amount ?? 0),
+    currency: String(item.currency ?? "usd"),
+  }
 }
 
 // Config-level NOWPayments plan ids for Pro / Ultimate (see env.ts).

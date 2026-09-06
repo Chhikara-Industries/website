@@ -1,10 +1,11 @@
 "use client"
 
-import { useActionState, useEffect, useState } from "react"
+import { useActionState, useState } from "react"
 import {
   Bitcoin,
   CircleDollarSign,
   Coins,
+  Repeat,
   ShieldCheck,
   Sparkles,
 } from "lucide-react"
@@ -17,6 +18,7 @@ import {
 import { TOKENS_PER_CENT } from "@/lib/checkout"
 import { tokenPackages } from "@/lib/token-packages"
 import { plans } from "@/lib/plans"
+import { PaymentStatus } from "@/components/dashboard/payment-status"
 import { Button } from "@/components/ui/button"
 import {
   Card,
@@ -46,16 +48,26 @@ export function BillingCheckout() {
   const [packageId, setPackageId] = useState(tokenPackages[2]?.id ?? "pro")
   const [crypto, setCrypto] = useState<CheckoutCrypto>("btc")
 
-  useEffect(() => {
-    if (state?.redirectUrl) {
-      window.location.assign(state.redirectUrl)
-    }
-  }, [state])
-
   const plan = paidPlans.find((p) => p.id === planId) ?? paidPlans[0]
   const pkg = tokenPackages.find((p) => p.id === packageId) ?? tokenPackages[0]
   const amountUsd = mode === "subscription" ? (plan?.priceUsd ?? 0) : (pkg?.priceUsd ?? 0)
   const canSubmit = amountUsd > 0
+  const isSubscription = mode === "subscription"
+
+  if (state?.orderId) {
+    return (
+      <div className="space-y-4">
+        <div className="rounded-xl border border-border bg-card/50 px-4 py-3 text-sm text-muted-foreground">
+          {state.message}
+        </div>
+        <PaymentStatus orderId={state.orderId} />
+        <p className="font-mono text-xs text-muted-foreground">
+          Keep this page open — your purchase is confirmed automatically, no
+          further action needed.
+        </p>
+      </div>
+    )
+  }
 
   return (
     <form action={formAction} className="space-y-6">
@@ -165,43 +177,68 @@ export function BillingCheckout() {
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
-            <Coins className="size-4 text-primary" />
-            Pay with crypto
+            {isSubscription ? (
+              <Repeat className="size-4 text-primary" />
+            ) : (
+              <Coins className="size-4 text-primary" />
+            )}
+            {isSubscription ? "Recurring subscription" : "Pay with crypto"}
           </CardTitle>
           <CardDescription>
-            Transactions are processed by NOWPayments with no bank and no
-            middleman in between.
+            {isSubscription
+              ? "You’ll get a secure payment link by email. Pay it once and the plan renews automatically."
+              : "Transactions are processed by NOWPayments with no bank and no middleman in between."}
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="flex gap-2">
-            {cryptos.map((c) => (
-              <button
-                key={c.id}
-                type="button"
-                onClick={() => setCrypto(c.id)}
-                className={cn(
-                  "flex flex-1 items-center justify-center gap-2 rounded-lg border px-3 py-2.5 font-mono text-sm transition-colors",
-                  crypto === c.id
-                    ? "border-primary/50 bg-primary/5 text-foreground"
-                    : "border-border text-muted-foreground hover:border-primary/30 hover:text-foreground"
-                )}
-              >
-                <c.icon className="size-4 text-primary" />
-                {c.label}
-              </button>
-            ))}
-          </div>
+          {isSubscription ? (
+            <div className="rounded-xl border border-border bg-muted/30 p-4">
+              <p className="text-sm text-muted-foreground">
+                Plan:{" "}
+                <span className="font-semibold text-foreground">
+                  {plan?.name}
+                </span>{" "}
+                — ${amountUsd.toFixed(2)} / {plan?.priceNote}
+              </p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Paid with BTC, ETH, SOL or any supported asset via the
+                NOWPayments payment link. Renewal payments happen on the same
+                interval.
+              </p>
+            </div>
+          ) : (
+            <>
+              <div className="flex gap-2">
+                {cryptos.map((c) => (
+                  <button
+                    key={c.id}
+                    type="button"
+                    onClick={() => setCrypto(c.id)}
+                    className={cn(
+                      "flex flex-1 items-center justify-center gap-2 rounded-lg border px-3 py-2.5 font-mono text-sm transition-colors",
+                      crypto === c.id
+                        ? "border-primary/50 bg-primary/5 text-foreground"
+                        : "border-border text-muted-foreground hover:border-primary/30 hover:text-foreground"
+                    )}
+                  >
+                    <c.icon className="size-4 text-primary" />
+                    {c.label}
+                  </button>
+                ))}
+              </div>
 
-          <div className="mt-4 rounded-xl border border-border bg-muted/30 p-4">
-            <p className="text-sm text-muted-foreground">
-              You’ll pay ${amountUsd.toFixed(2)} worth of{" "}
-              <span className="font-semibold text-foreground">
-                {crypto.toUpperCase()}
-              </span>
-              . The exact crypto amount is set by NOWPayments at checkout.
-            </p>
-          </div>
+              <div className="mt-4 rounded-xl border border-border bg-muted/30 p-4">
+                <p className="text-sm text-muted-foreground">
+                  You’ll pay ${amountUsd.toFixed(2)} worth of{" "}
+                  <span className="font-semibold text-foreground">
+                    {crypto.toUpperCase()}
+                  </span>
+                  . The exact crypto amount and deposit address are shown as
+                  soon as your order is created.
+                </p>
+              </div>
+            </>
+          )}
 
           <Button
             type="submit"
@@ -210,8 +247,12 @@ export function BillingCheckout() {
             disabled={pending || !canSubmit}
           >
             {pending
-              ? "Redirecting to NOWPayments…"
-              : `Pay with ${crypto.toUpperCase()}`}
+              ? isSubscription
+                ? "Starting subscription…"
+                : "Creating your order…"
+              : isSubscription
+                ? "Start subscription"
+                : `Pay with ${crypto.toUpperCase()}`}
           </Button>
 
           {state?.errors ? (
