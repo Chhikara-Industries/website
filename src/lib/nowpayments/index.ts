@@ -144,11 +144,15 @@ async function getAuthJwt(): Promise<string> {
   const email = getNowPaymentsEmail()
   const password = getNowPaymentsPassword()
 
-  // Preferred path: mint a fresh token from merchant credentials.
+  // Preferred path: mint a fresh token from merchant credentials. The auth
+  // endpoint still requires the API key in the x-api-key header.
   if (email && password) {
     const res = await fetch(`${API_BASE}/auth`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "x-api-key": getNowPaymentsApiKey(),
+        "Content-Type": "application/json",
+      },
       body: JSON.stringify({ email, password }),
     })
     const body = (await res.json().catch(() => ({}))) as Record<string, unknown>
