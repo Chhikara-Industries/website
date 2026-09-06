@@ -10,10 +10,14 @@ export function nowPaymentsConfigured() {
 }
 
 // Recurring subscription endpoints require BOTH the API key and a Bearer JWT
-// (generated in the NOWPayments dashboard). The JWT is server-only.
+// (POST /v1/auth mints one from merchant credentials; it only lives ~5 min).
+// We support on-demand auth from dashboard credentials (recommended) or a
+// static token. All values are server-only.
 export function nowPaymentsSubscriptionConfigured() {
   return Boolean(
-    process.env.NOWPAYMENTS_API_KEY && process.env.NOWPAYMENTS_JWT_TOKEN
+    process.env.NOWPAYMENTS_API_KEY &&
+      (process.env.NOWPAYMENTS_JWT_TOKEN ||
+        (process.env.NOWPAYMENTS_EMAIL && process.env.NOWPAYMENTS_PASSWORD))
   )
 }
 
@@ -35,6 +39,16 @@ export function getNowPaymentsIpnSecret() {
 
 export function getNowPaymentsJwtToken() {
   return process.env.NOWPAYMENTS_JWT_TOKEN ?? ""
+}
+
+// Merchant dashboard credentials used to mint fresh Bearer JWTs via
+// POST /v1/auth when the static token expires (it only lives ~5 minutes).
+export function getNowPaymentsEmail() {
+  return process.env.NOWPAYMENTS_EMAIL ?? ""
+}
+
+export function getNowPaymentsPassword() {
+  return process.env.NOWPAYMENTS_PASSWORD ?? ""
 }
 
 export function getSupabaseUrl() {

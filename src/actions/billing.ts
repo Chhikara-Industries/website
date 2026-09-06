@@ -12,6 +12,7 @@ import { createServiceClient } from "@/lib/supabase/service"
 import {
   createDirectPayment,
   createEmailSubscription,
+  NowPaymentsError,
   nowPaymentsPlanIdFor,
 } from "@/lib/nowpayments"
 import { MIN_CREDITS } from "@/lib/checkout"
@@ -208,10 +209,16 @@ export async function createCheckout(
       planKey,
       error: e instanceof Error ? e.message : "unknown",
     })
+    const isAuthFailure =
+      e instanceof NowPaymentsError && e.status === 401
     return {
       errors: {},
       message: `Could not start subscription. ${
-        e instanceof Error ? e.message : "Please try again later."
+        isAuthFailure
+          ? "The payment provider rejected the credentials. Refresh NOWPAYMENTS_EMAIL/NOWPAYMENTS_PASSWORD and try again."
+          : e instanceof Error
+            ? e.message
+            : "Please try again later."
       }`,
     }
   }

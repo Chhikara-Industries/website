@@ -4,8 +4,10 @@ import crypto from "node:crypto"
 
 import {
   getNowPaymentsApiKey,
+  getNowPaymentsEmail,
   getNowPaymentsIpnSecret,
   getNowPaymentsJwtToken,
+  getNowPaymentsPassword,
   getNowPaymentsPlanId,
   SITE_URL,
 } from "@/lib/env"
@@ -99,12 +101,102 @@ export function verifyIpnSignature(payload: unknown, signature: string): boolean
 }
 
 // ---------------------------------------------------------------------------
+// Bearer JWT auth for the /v1/subscriptions* endpoints
+//
+// NOWPayments mints these JWTs via POST /v1/auth (merchant dashboard email +
+// password) and they only live ~5 minutes. We obtain one on demand, cache it
+// in memory while it is valid, and refresh it when it expires. If merchant
+// credentials are not configured, a static NOWPAYMENTS_JWT_TOKEN is used as a
+// fallback (it is still subject to the same 5-minute expiry).
+// ---------------------------------------------------------------------------
+let cachedJwt = ""
+let cachedJwtExpiryMs = 0
+const JWT_FRESHNESS_MS = 30_000 // stay clear of the expiry boundary
+
+function jwtPayload(token: string): { exp?: number; iat?: number } {
+  try {
+    const part = token.split(".")[1]
+    if (!part) return {}
+    const base64 = part.replace(/-/g, "+").replace(/_/g, "/")
+    const json = Buffer.from(
+      base64 + "=".repeat((4 - (base64.length % 4)) % 4),
+      "base64"
+    ).toString("utf-8")
+    return JSON.parse(json) as { exp?: number; iat?: number }
+  } catch {
+    return {}
+  }
+}
+
+function staticTokenUsable(token: string): boolean {
+  const { exp, iat } = jwtPayload(token)
+  const now = Date.now()
+  if (exp && now >= exp * 1000 - JWT_FRESHNESS_MS) return false
+  if (iat && now >= iat * 1000 + 290_000) return false
+  return true
+}
+
+async function getAuthJwt(): Promise<string> {
+  if (cachedJwt && cachedJwtExpiryMs > Date.now() + JWT_FRESHNESS_MS) {
+    return cachedJwt
+  }
+
+  const email = getNowPaymentsEmail()
+  const password = getNowPaymentsPassword()
+
+  // Preferred path: mint a fresh token from merchant credentials.
+  if (email && password) {
+    const res = await fetch(`${API_BASE}/auth`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email, password }),
+    })
+    const body = (await res.json().catch(() => ({}))) as Record<string, unknown>
+    if (!res.ok || typeof body.token !== "string" || !body.token) {
+      const message =
+        typeof body.message === "string" ? body.message : "unknown error"
+      throw new NowPaymentsError(
+        `NOWPayments authentication failed: ${message}`,
+        res.status
+      )
+    }
+    cachedJwt = body.token
+    // NOWPayments JWTs live 300s from issuance. Prefer our own wall-clock
+    // deadline over the token's exp claim: if this server's clock is skewed
+    // relative to NOWPayments', exp is not a reliable local timestamp, but the
+    // absolute lifetime from when WE minted the token is always correct.
+    const expMs = jwtPayload(body.token).exp
+      ? jwtPayload(body.token).exp! * 1000
+      : Infinity
+    cachedJwtExpiryMs = Math.min(Date.now() + 290_000, expMs)
+    return cachedJwt
+  }
+
+  // Fallback: a static token from the environment.
+  const staticToken = getNowPaymentsJwtToken()
+  if (staticToken) {
+    if (!staticTokenUsable(staticToken)) {
+      throw new NowPaymentsError(
+        "The static NOWPAYMENTS_JWT_TOKEN has expired (tokens only live ~5 minutes). Configure NOWPAYMENTS_EMAIL and NOWPAYMENTS_PASSWORD for automatic refresh."
+      )
+    }
+    cachedJwt = staticToken
+    cachedJwtExpiryMs = (jwtPayload(staticToken).exp ?? Date.now() / 1000 + 290) * 1000
+    return staticToken
+  }
+
+  throw new NowPaymentsError(
+    "NOWPayments subscriptions require credentials: set NOWPAYMENTS_EMAIL/NOWPAYMENTS_PASSWORD or a static NOWPAYMENTS_JWT_TOKEN."
+  )
+}
+
+// ---------------------------------------------------------------------------
 // API helpers
 // ---------------------------------------------------------------------------
 async function apiFetch(
   path: string,
   init: RequestInit = {},
-  options: { bearerAuth?: boolean } = {}
+  options: { bearerAuth?: boolean; retried?: boolean } = {}
 ): Promise<{
   status: number
   body: Record<string, unknown>
@@ -117,7 +209,7 @@ async function apiFetch(
   }
   // The /v1/subscriptions* endpoints require BOTH x-api-key and a Bearer JWT.
   if (options.bearerAuth) {
-    headers["Authorization"] = `Bearer ${getNowPaymentsJwtToken()}`
+    headers["Authorization"] = `Bearer ${await getAuthJwt()}`
   }
   const res = await fetch(`${API_BASE}${path}`, {
     ...init,
@@ -127,6 +219,14 @@ async function apiFetch(
   const body = (await res.json().catch(() => ({}))) as Record<string, unknown>
 
   if (!res.ok) {
+    // A bearer endpoint can 401 when a JWT expired mid-flight (a cached token
+    // from before a deploy, or another instance's stale copy). Drop the cache
+    // and retry once with a fresh token before giving up.
+    if (res.status === 401 && options.bearerAuth && !options.retried) {
+      cachedJwt = ""
+      cachedJwtExpiryMs = 0
+      return apiFetch(path, init, { ...options, retried: true })
+    }
     const message =
       typeof body.message === "string"
         ? body.message
@@ -343,9 +443,11 @@ export async function createEmailSubscription({
   planId: string
   email: string
 }): Promise<EmailSubscriptionResult> {
-  if (!getNowPaymentsJwtToken()) {
+  const hasCredentials =
+    getNowPaymentsEmail() && getNowPaymentsPassword()
+  if (!getNowPaymentsApiKey() || (!hasCredentials && !getNowPaymentsJwtToken())) {
     throw new NowPaymentsError(
-      "NOWPayments subscriptions require a JWT token (NOWPAYMENTS_JWT_TOKEN)."
+      "NOWPayments subscriptions require credentials (NOWPAYMENTS_EMAIL/NOWPAYMENTS_PASSWORD) or a JWT token (NOWPAYMENTS_JWT_TOKEN)."
     )
   }
   const { body } = await apiFetch("/subscriptions", {
