@@ -1,7 +1,6 @@
 "use client"
 
 import { useActionState, useEffect, useState } from "react"
-import { useRouter } from "next/navigation"
 import { Bitcoin, CircleDollarSign, Coins, Loader2, Repeat, ShieldCheck } from "lucide-react"
 
 import {
@@ -66,7 +65,6 @@ export function PayInForm({
   cryptoDefault = "btc",
   hiddenFields,
 }: PayInFormProps) {
-  const router = useRouter()
   const [state, formAction, pending] = useActionState<CheckoutState, FormData>(
     createCheckout,
     undefined
@@ -75,14 +73,44 @@ export function PayInForm({
   const [crypto, setCrypto] = useState<CheckoutCrypto>(cryptoDefault)
   const [wallet, setWallet] = useState("")
   const [walletError, setWalletError] = useState<string | null>(null)
+  const [invoiceError, setInvoiceError] = useState<string | null>(null)
 
   const isSubscription = kind === "subscription"
 
   useEffect(() => {
-    if (state?.orderId) {
-      router.push(`/dashboard/billing/payments/status?order_id=${state.orderId}`)
+    const orderId = state?.orderId
+    if (!orderId || pending) return
+    let cancelled = false
+
+    async function openCheckout() {
+      let res: Response
+      try {
+        res = await fetch("/api/shieldz/create-invoice", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ orderId }),
+        })
+      } catch {
+        if (!cancelled) setInvoiceError("Could not start the checkout. Please try again.")
+        return
+      }
+      if (cancelled) return
+      const json = (await res.json().catch(() => ({}))) as {
+        payUrl?: string
+        error?: string
+      }
+      if (res.ok && json.payUrl) {
+        window.location.href = json.payUrl
+        return
+      }
+      setInvoiceError(json.error ?? "Could not start the checkout.")
     }
-  }, [state?.orderId, router])
+
+    void openCheckout()
+    return () => {
+      cancelled = true
+    }
+  }, [state?.orderId, pending])
 
   const onWalletChange = (value: string) => {
     setWallet(value)
@@ -107,6 +135,8 @@ export function PayInForm({
       )
     }
   }
+
+  const busy = pending
 
   return (
     <form action={formAction} className="mx-auto max-w-2xl space-y-6">
@@ -143,7 +173,7 @@ export function PayInForm({
             </p>
           </div>
 
-          {/* Crypto selection — fixes the payout currency. */}
+          {/* Asset the customer pays in — fixed amount on our side. */}
           <div>
             <p className="mb-2 font-mono text-xs uppercase tracking-wider text-muted-foreground">
               Pay with
@@ -168,7 +198,7 @@ export function PayInForm({
             </div>
           </div>
 
-          {/* Wallet address the customer pays FROM. */}
+          {/* Wallet address for refunds / records. */}
           <div>
             <label
               htmlFor="wallet"
@@ -187,8 +217,7 @@ export function PayInForm({
               aria-invalid={walletError != null}
             />
             <p className="mt-1 text-xs text-muted-foreground">
-              This is where refunds / payouts are sent. Send from this wallet so
-              it matches.
+              Saved for refunds and your payment records.
             </p>
             {walletError ? (
               <p className="mt-1 text-xs text-destructive">{walletError}</p>
@@ -199,9 +228,9 @@ export function PayInForm({
             type="submit"
             size="lg"
             className="w-full"
-            disabled={pending || walletError != null || !wallet.trim()}
+            disabled={busy || walletError != null || !wallet.trim()}
           >
-            {pending ? (
+            {busy ? (
               <span className="inline-flex items-center gap-2">
                 <Loader2 className="size-4 animate-spin" />
                 {isSubscription ? "Starting subscription…" : "Creating your order…"}
@@ -213,7 +242,9 @@ export function PayInForm({
             )}
           </Button>
 
-          {(state?.errors ?? state?.message) && !state?.orderId ? (
+          {state?.errors ||
+          (state?.message && !state?.orderId) ||
+          invoiceError ? (
             <div className="space-y-1">
               {state?.errors
                 ? Object.entries(state.errors).map(([key, messages]) => (
@@ -225,9 +256,9 @@ export function PayInForm({
                     </p>
                   ))
                 : null}
-              {state?.message && !state.redirectUrl ? (
-                <p className="rounded-lg border border-primary/30 bg-primary/10 px-3 py-2.5 text-sm text-primary">
-                  {state.message}
+              {invoiceError || (state?.message && !state?.orderId) ? (
+                <p className="rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2.5 text-sm text-destructive">
+                  {invoiceError ?? state?.message}
                 </p>
               ) : null}
             </div>
@@ -236,9 +267,9 @@ export function PayInForm({
           <div className="flex items-start gap-3 rounded-xl border border-chart-2/40 bg-chart-2/10 px-4 py-3.5 text-sm">
             <ShieldCheck className="mt-0.5 size-4 shrink-0 text-chart-2" />
             <p className="leading-relaxed text-foreground/90">
-              No bank or middleman is involved. Your plan only activates after
-              your payment is confirmed on-chain — sending less than the exact
-              amount leaves the order unfulfilled.
+              You’ll pay on a secure hosted checkout. Your plan or credits only
+              activate after your payment is confirmed on-chain — sending less
+              than the exact amount leaves the order unfulfilled.
             </p>
           </div>
         </CardContent>

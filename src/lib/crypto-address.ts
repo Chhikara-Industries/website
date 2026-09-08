@@ -7,7 +7,7 @@ export const PAY_CRYPTOS: PayCrypto[] = ["btc", "eth", "sol"]
 
 // Loose but safe structural validation of a payout/sending address for a given
 // asset. We can't verify an address is truly spendable without a node, but we
-// reject obviously malformed input before it reaches NOWPayments.
+// reject obviously malformed input before it's stored on a checkout.
 export function isValidCryptoAddress(
   address: string | null | undefined,
   crypto: PayCrypto

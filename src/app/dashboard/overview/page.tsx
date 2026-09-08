@@ -93,7 +93,7 @@ export default async function OverviewPage() {
             <p className="text-xs text-muted-foreground">
               {rawPlan === "free"
                 ? "no subscription yet"
-                : "crypto payments via NOWPayments"}
+                : "crypto payments via Shieldz"}
             </p>
           </CardContent>
         </Card>
