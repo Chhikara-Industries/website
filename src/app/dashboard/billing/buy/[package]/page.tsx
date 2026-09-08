@@ -49,7 +49,7 @@ export default async function BuyCreditsPage({
       <PayInForm
         kind="credits"
         heading={`Buy ${pkg.name}`}
-        description="Pick the asset you’ll pay in and add the wallet you’re sending from. The amount is fixed by our server."
+        description="Pick the asset you’ll pay in and add the wallet to keep for refunds and records. The amount is fixed by our server."
         itemLabel={`${pkg.tokens.toLocaleString()} tokens · ${pkg.name}`}
         amountLabel={`$${pkg.priceUsd.toFixed(2)}`}
         hiddenFields={{ plan: "", packageId: pkg.id }}

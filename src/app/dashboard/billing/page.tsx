@@ -43,7 +43,7 @@ export default async function BillingPage({
             Payments
           </p>
           <p className="mt-2 text-sm leading-relaxed text-foreground/85">
-            All payments are processed by NOWPayments using BTC, ETH, or SOL.
+            All payments are processed by Shieldz and settle in USDC on Base.
             No bank account is required.
           </p>
         </div>
