@@ -29,3 +29,12 @@ export function isValidCryptoAddress(
       return false
   }
 }
+
+// Generic validation for when the customer doesn't pick an asset up front
+// (they choose the asset on the hosted checkout): accepts any address that
+// structurally matches one of the supported assets.
+export function isValidCryptoAddressAny(
+  address: string | null | undefined
+): boolean {
+  return PAY_CRYPTOS.some((crypto) => isValidCryptoAddress(address, crypto))
+}

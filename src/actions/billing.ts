@@ -5,19 +5,15 @@ import { randomUUID } from "node:crypto"
 import { shieldzConfigured, supabaseConfigured } from "@/lib/env"
 import { createClient } from "@/lib/supabase/server"
 import { createServiceClient } from "@/lib/supabase/service"
-import { isValidCryptoAddress } from "@/lib/crypto-address"
+import { isValidCryptoAddressAny } from "@/lib/crypto-address"
 import { MIN_CREDITS } from "@/lib/checkout"
 import { getTokenPackage } from "@/lib/token-packages"
 import { plans, type PlanId } from "@/lib/plans"
 import type { FormState } from "@/actions/auth"
 
-export type CheckoutCrypto = "btc" | "eth" | "sol"
-
-const CRYPTOS: Record<CheckoutCrypto, string> = {
-  btc: "BTC",
-  eth: "ETH",
-  sol: "SOL",
-}
+// The customer picks the asset on the Shieldz hosted checkout. We only record
+// that they paid in crypto for the fixed fiat amount.
+const PAY_CRYPTO = "any"
 
 export type CheckoutResult = FormState & {
   orderId?: string
@@ -44,16 +40,11 @@ export async function createCheckout(
   if (!user) return { errors: {}, message: "You must be signed in." }
 
   const mode = String(formData.get("mode") ?? "")
-  const crypto = String(formData.get("crypto") ?? "btc")
-  if (!(crypto in CRYPTOS)) {
-    return { errors: {}, message: "Unsupported cryptocurrency." }
-  }
-  const selectedCrypto = crypto as CheckoutCrypto
   const walletAddress = String(formData.get("wallet") ?? "").trim()
-  if (!isValidCryptoAddress(walletAddress, selectedCrypto)) {
+  if (!isValidCryptoAddressAny(walletAddress)) {
     return {
       errors: {
-        wallet: [`Enter a valid ${selectedCrypto.toUpperCase()} wallet address for refunds/records.`],
+        wallet: ["Enter a valid BTC, ETH, or SOL wallet address for refunds/records."],
       },
     }
   }
@@ -137,7 +128,7 @@ export async function createCheckout(
     user_id: user.id,
     item,
     mode,
-    crypto: selectedCrypto,
+    crypto: PAY_CRYPTO,
     amount_usd: amountUsd,
     currency: "usd",
     status: "pending",

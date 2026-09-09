@@ -52,7 +52,7 @@ export default async function SubscribePage({
       <PayInForm
         kind="subscription"
         heading={`Go ${typedPlan.name}`}
-        description="Pick the asset you’ll pay in and add the wallet to keep for refunds and records. The amount is fixed by our server."
+        description="Add the wallet to keep for refunds and records, then pay on the secure hosted checkout. The amount is fixed by our server."
         itemLabel={`${typedPlan.name} · ${typedPlan.price} / ${typedPlan.priceNote}`}
         amountLabel={`$${priceUsd.toFixed(2)} / ${typedPlan.priceNote}`}
         hiddenFields={{ plan: typedPlan.id, packageId: "" }}
