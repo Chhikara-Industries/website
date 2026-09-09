@@ -34,7 +34,7 @@ export async function POST(request: NextRequest) {
   const { data, error } = await client
     .from("checkouts")
     .select(
-      "id, user_id, item, mode, crypto, amount_usd, status, wallet_address, shieldz_invoice_id"
+      "id, user_id, item, mode, amount_usd, status, wallet_address, shieldz_invoice_id"
     )
     .eq("id", orderId)
     .maybeSingle()
@@ -65,7 +65,6 @@ export async function POST(request: NextRequest) {
       metadata: {
         order_id: orderId,
         mode: data.mode,
-        crypto: data.crypto,
       },
     })
   } catch (e) {

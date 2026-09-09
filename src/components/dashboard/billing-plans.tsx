@@ -26,7 +26,7 @@ export function BillingPlans() {
           <h2 className="text-lg font-semibold tracking-tight">Subscription</h2>
         </div>
         <p className="mt-1 text-sm text-muted-foreground">
-          Pick a plan, choose an asset, and pay. Your access activates once the
+          Pick a plan and pay with crypto. Your access activates once the
           payment is confirmed on-chain.
         </p>
         <div className="mt-4 grid gap-4 sm:grid-cols-2">
