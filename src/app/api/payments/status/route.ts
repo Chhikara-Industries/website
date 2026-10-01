@@ -1,8 +1,10 @@
 import { NextRequest, NextResponse } from "next/server"
+import { fetchQuery } from "convex/nextjs"
 
-import { supabaseConfigured } from "@/lib/env"
-import { createClient } from "@/lib/supabase/server"
-import { createServiceClient } from "@/lib/supabase/service"
+import { api } from "@/convex/_generated/api"
+import { getAuthToken } from "@/lib/convex-server"
+
+export const dynamic = "force-dynamic"
 
 export async function GET(request: NextRequest) {
   const orderId = request.nextUrl.searchParams.get("order_id")
@@ -10,37 +12,17 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "Missing order_id" }, { status: 400 })
   }
 
-  if (!supabaseConfigured()) {
-    return NextResponse.json({ error: "Not configured" }, { status: 400 })
-  }
-
-  const supabase = await createClient()
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
-  if (!user) {
+  const token = await getAuthToken()
+  if (!token) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   }
 
-  const service = createServiceClient()
-
-  const query = (client: typeof supabase | NonNullable<typeof service>) =>
-    client
-      .from("checkouts")
-      .select(
-        "id, user_id, status, shieldz_invoice_id, shieldz_status, paid_at, updated_at, item, mode"
-      )
-      .eq("id", orderId)
-      .eq("user_id", user.id)
-      .maybeSingle()
-
-  const first = await query(supabase)
-  let checkout = first.error || !first.data ? null : first.data
-  if (!checkout && service) {
-    const second = await query(service)
-    checkout = second.error || !second.data ? null : second.data
+  let checkout
+  try {
+    checkout = await fetchQuery(api.checkouts.getCheckout, { orderCode: orderId }, { token })
+  } catch {
+    return NextResponse.json({ error: "Order not found" }, { status: 404 })
   }
-
   if (!checkout) {
     return NextResponse.json({ error: "Order not found" }, { status: 404 })
   }
@@ -49,12 +31,18 @@ export async function GET(request: NextRequest) {
   // database already recorded. No external provider is polled.
   return NextResponse.json(
     {
-      orderId: checkout.id,
+      orderId: checkout.orderCode,
       status: checkout.status,
-      shieldzStatus: checkout.shieldz_status,
-      invoiceId: checkout.shieldz_invoice_id,
-      paidAt: checkout.paid_at,
-      updatedAt: checkout.updated_at,
+      shieldzStatus: checkout.shieldzStatus ?? null,
+      invoiceId: checkout.shieldzInvoiceId ?? null,
+      paidAt:
+        typeof checkout.paidAt === "number"
+          ? new Date(checkout.paidAt).toISOString()
+          : null,
+      updatedAt:
+        typeof checkout.updatedAt === "number"
+          ? new Date(checkout.updatedAt).toISOString()
+          : null,
       item: checkout.item,
       mode: checkout.mode,
     },

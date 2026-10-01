@@ -1,12 +1,11 @@
 "use client"
 
 import Link from "next/link"
-import { useSearchParams } from "next/navigation"
-import { useActionState } from "react"
+import { useRouter, useSearchParams } from "next/navigation"
+import { useState } from "react"
 import { LogIn } from "lucide-react"
+import { useAuthActions } from "@convex-dev/auth/react"
 
-import type { FormState } from "@/actions/auth"
-import { login } from "@/actions/auth"
 import { Button } from "@/components/ui/button"
 import {
   Card,
@@ -21,12 +20,33 @@ import { PasswordInput } from "@/components/ui/password-input"
 import { SocialLoginButtons } from "@/components/auth/social-login-buttons"
 
 export function SignInForm() {
-  const [state, formAction, pending] = useActionState<FormState, FormData>(
-    login,
-    undefined
-  )
+  const router = useRouter()
   const searchParams = useSearchParams()
+  const { signIn } = useAuthActions()
+  const [error, setError] = useState<string | null>(null)
+  const [pending, setPending] = useState(false)
   const oauthError = searchParams.get("error")
+  const next = searchParams.get("next")
+
+  async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault()
+    setError(null)
+    setPending(true)
+    const form = new FormData(e.currentTarget)
+    try {
+      await signIn("password", {
+        email: String(form.get("email") ?? ""),
+        password: String(form.get("password") ?? ""),
+        flow: "signIn",
+      })
+      router.push(next && next.startsWith("/") ? next : "/dashboard")
+      router.refresh()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not sign in.")
+    } finally {
+      setPending(false)
+    }
+  }
 
   return (
     <Card className="border-border/80 bg-card/70 backdrop-blur">
@@ -56,7 +76,7 @@ export function SignInForm() {
           </div>
         </div>
 
-        <form action={formAction} className="space-y-4">
+        <form onSubmit={handleSubmit} className="space-y-4">
           <div className="space-y-2">
             <Label htmlFor="email">Email</Label>
             <Input
@@ -67,9 +87,6 @@ export function SignInForm() {
               autoComplete="email"
               required
             />
-            {state?.errors?.email ? (
-              <p className="text-xs text-destructive">{state.errors.email.join(" · ")}</p>
-            ) : null}
           </div>
 
           <div className="space-y-2">
@@ -88,14 +105,11 @@ export function SignInForm() {
               autoComplete="current-password"
               required
             />
-            {state?.errors?.password ? (
-              <p className="text-xs text-destructive">{state.errors.password.join(" · ")}</p>
-            ) : null}
           </div>
 
-          {state?.message ? (
-            <p className="rounded-lg border border-primary/30 bg-primary/10 px-3 py-2.5 text-sm text-primary">
-              {state.message}
+          {error ? (
+            <p className="rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2.5 text-sm text-destructive">
+              {error}
             </p>
           ) : null}
 

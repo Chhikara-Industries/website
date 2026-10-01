@@ -1,11 +1,11 @@
 "use client"
 
 import Link from "next/link"
-import { useActionState } from "react"
+import { useRouter } from "next/navigation"
+import { useState } from "react"
 import { Rocket } from "lucide-react"
+import { useAuthActions } from "@convex-dev/auth/react"
 
-import type { FormState } from "@/actions/auth"
-import { signup } from "@/actions/auth"
 import { Button } from "@/components/ui/button"
 import {
   Card,
@@ -19,16 +19,63 @@ import { Label } from "@/components/ui/label"
 import { PasswordInput } from "@/components/ui/password-input"
 import { SocialLoginButtons } from "@/components/auth/social-login-buttons"
 
-function FieldError({ state, id }: { state: FormState; id: string }) {
-  const message = state?.errors?.[id]?.join(" · ")
-  return message ? <p className="text-xs text-destructive">{message}</p> : null
+type FieldErrors = {
+  name?: string
+  email?: string
+  password?: string
+  confirm?: string
+}
+
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+
+function validatePassword(password: string): string[] {
+  const errors: string[] = []
+  if (password.length < 8) errors.push("Use at least 8 characters")
+  if (!/[a-zA-Z]/.test(password)) errors.push("Include at least one letter")
+  if (!/[0-9]/.test(password)) errors.push("Include at least one number")
+  return errors
 }
 
 export function SignUpForm() {
-  const [state, formAction, pending] = useActionState<FormState, FormData>(
-    signup,
-    undefined
-  )
+  const router = useRouter()
+  const { signIn } = useAuthActions()
+  const [errors, setErrors] = useState<FieldErrors>({})
+  const [error, setError] = useState<string | null>(null)
+  const [pending, setPending] = useState(false)
+
+  async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault()
+    setError(null)
+    setErrors({})
+    const form = new FormData(e.currentTarget)
+
+    const name = String(form.get("name") ?? "").trim()
+    const email = String(form.get("email") ?? "").trim()
+    const password = String(form.get("password") ?? "")
+    const confirm = String(form.get("confirm") ?? "")
+
+    const nextErrors: FieldErrors = {}
+    if (name.length < 2) nextErrors.name = "Enter your name"
+    if (!EMAIL_RE.test(email)) nextErrors.email = "Enter a valid email address"
+    const pwErrors = validatePassword(password)
+    if (pwErrors.length) nextErrors.password = pwErrors.join(" · ")
+    if (password !== confirm) nextErrors.confirm = "Passwords do not match"
+    if (Object.keys(nextErrors).length > 0) {
+      setErrors(nextErrors)
+      return
+    }
+
+    setPending(true)
+    try {
+      await signIn("password", { name, email, password, flow: "signUp" })
+      router.push("/dashboard")
+      router.refresh()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not create your account.")
+    } finally {
+      setPending(false)
+    }
+  }
 
   return (
     <Card className="border-border/80 bg-card/70 backdrop-blur">
@@ -52,7 +99,7 @@ export function SignUpForm() {
           </div>
         </div>
 
-        <form action={formAction} className="space-y-4">
+        <form onSubmit={handleSubmit} className="space-y-4">
           <div className="space-y-2">
             <Label htmlFor="name">Name</Label>
             <Input
@@ -62,7 +109,7 @@ export function SignUpForm() {
               placeholder="Ada Lovelace"
               required
             />
-            <FieldError state={state} id="name" />
+            {errors.name ? <p className="text-xs text-destructive">{errors.name}</p> : null}
           </div>
 
           <div className="space-y-2">
@@ -75,7 +122,7 @@ export function SignUpForm() {
               placeholder="you@company.com"
               required
             />
-            <FieldError state={state} id="email" />
+            {errors.email ? <p className="text-xs text-destructive">{errors.email}</p> : null}
           </div>
 
           <div className="space-y-2">
@@ -86,7 +133,7 @@ export function SignUpForm() {
               autoComplete="new-password"
               required
             />
-            <FieldError state={state} id="password" />
+            {errors.password ? <p className="text-xs text-destructive">{errors.password}</p> : null}
           </div>
 
           <div className="space-y-2">
@@ -97,12 +144,12 @@ export function SignUpForm() {
               autoComplete="new-password"
               required
             />
-            <FieldError state={state} id="confirm" />
+            {errors.confirm ? <p className="text-xs text-destructive">{errors.confirm}</p> : null}
           </div>
 
-          {state?.message ? (
-            <p className="rounded-lg border border-primary/30 bg-primary/10 px-3 py-2.5 text-sm text-primary">
-              {state.message}
+          {error ? (
+            <p className="rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2.5 text-sm text-destructive">
+              {error}
             </p>
           ) : null}
 

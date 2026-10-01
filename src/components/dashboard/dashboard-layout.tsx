@@ -4,6 +4,7 @@ import type { ReactNode } from "react"
 import Image from "next/image"
 import Link from "next/link"
 import { usePathname, useRouter } from "next/navigation"
+import { useAuthActions } from "@convex-dev/auth/react"
 import {
   ArrowUpRight,
   CreditCard,
@@ -15,7 +16,6 @@ import {
   Settings2,
 } from "lucide-react"
 
-import { logout } from "@/actions/auth"
 import { Logo } from "@/components/site/logo"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import {
@@ -84,9 +84,10 @@ export function DashboardLayout({
 }) {
   const pathname = usePathname()
   const router = useRouter()
+  const { signOut } = useAuthActions()
 
   async function handleSignOut() {
-    await logout()
+    await signOut()
     router.replace("/login")
     router.refresh()
   }

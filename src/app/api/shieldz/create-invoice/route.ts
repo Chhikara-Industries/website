@@ -1,9 +1,12 @@
 import { NextRequest, NextResponse } from "next/server"
+import { fetchMutation, fetchQuery } from "convex/nextjs"
 
+import { api } from "@/convex/_generated/api"
 import { createShieldzInvoice } from "@/lib/shieldz"
 import { shieldzConfigured } from "@/lib/env"
-import { createClient } from "@/lib/supabase/server"
-import { createServiceClient } from "@/lib/supabase/service"
+import { getAuthToken } from "@/lib/convex-server"
+
+export const dynamic = "force-dynamic"
 
 const CHECKOUT_TTL_SECONDS = 30 * 60
 
@@ -15,39 +18,35 @@ export async function POST(request: NextRequest) {
     )
   }
 
-  const supabase = await createClient()
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
-  if (!user) {
-    return NextResponse.json({ error: "You must be signed in." }, { status: 401 })
-  }
-
   const body = (await request.json().catch(() => ({}))) as Record<string, unknown>
   const orderId = typeof body.orderId === "string" ? body.orderId.trim() : ""
   if (!orderId) {
     return NextResponse.json({ error: "Missing order id." }, { status: 400 })
   }
 
-  const service = createServiceClient()
-  const client = service ?? supabase
-  const { data, error } = await client
-    .from("checkouts")
-    .select(
-      "id, user_id, item, mode, amount_usd, status, wallet_address, shieldz_invoice_id"
-    )
-    .eq("id", orderId)
-    .maybeSingle()
-  if (error || !data || data.user_id !== user.id) {
+  const token = await getAuthToken()
+  if (!token) {
+    return NextResponse.json({ error: "You must be signed in." }, { status: 401 })
+  }
+
+  let checkout
+  try {
+    checkout = await fetchQuery(api.checkouts.getCheckout, { orderCode: orderId }, { token })
+  } catch {
     return NextResponse.json({ error: "Order not found." }, { status: 404 })
   }
-  if (data.status !== "pending" && data.status !== "awaiting_payment") {
+  if (!checkout) {
+    return NextResponse.json({ error: "Order not found." }, { status: 404 })
+  }
+  if (checkout.status !== "pending" && checkout.status !== "awaiting_payment") {
     return NextResponse.json({ error: "This order is already closed." }, { status: 409 })
   }
 
+  const me = await fetchQuery(api.users.me, {}, { token })
+
   // The amount is always resolved server-side from the stored row — never from
   // the client. Cents rounding is applied on our side.
-  const amountCents = Math.round(Number(data.amount_usd ?? 0) * 100)
+  const amountCents = Math.round(Number(checkout.amountUsd ?? 0) * 100)
   if (!(amountCents > 0)) {
     return NextResponse.json({ error: "Invalid order amount." }, { status: 400 })
   }
@@ -58,13 +57,13 @@ export async function POST(request: NextRequest) {
   try {
     invoice = await createShieldzInvoice({
       amountUsdCents: amountCents,
-      memo: data.item ?? "Chhikara Industries payment",
-      customerEmail: user.email ?? undefined,
+      memo: checkout.item ?? "Chhikara Industries payment",
+      customerEmail: me?.email,
       idempotencyKey: orderId,
       expiresInSeconds: CHECKOUT_TTL_SECONDS,
       metadata: {
         order_id: orderId,
-        mode: data.mode,
+        mode: checkout.mode,
       },
     })
   } catch (e) {
@@ -78,19 +77,22 @@ export async function POST(request: NextRequest) {
     )
   }
 
-  const { error: updateError } = await client
-    .from("checkouts")
-    .update({
-      status: "awaiting_payment",
-      shieldz_invoice_id: invoice.id,
-      shieldz_status: invoice.status,
-      payment_url: invoice.pay_url,
-    })
-    .eq("id", orderId)
-  if (updateError) {
+  try {
+    await fetchMutation(
+      api.checkouts.linkShieldzInvoice,
+      {
+        orderCode: orderId,
+        invoiceId: invoice.id,
+        shieldzStatus: invoice.status,
+        paymentUrl: invoice.pay_url,
+        status: "awaiting_payment",
+      },
+      { token }
+    )
+  } catch (e) {
     console.error("[shieldz] checkout update failed", {
       orderId,
-      error: updateError.message,
+      error: e instanceof Error ? e.message : "unknown",
     })
     return NextResponse.json(
       { error: "Checkout could not be recorded. Please try again." },

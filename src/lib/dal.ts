@@ -2,9 +2,10 @@ import "server-only"
 
 import { cache } from "react"
 import { redirect } from "next/navigation"
+import { fetchQuery } from "convex/nextjs"
 
-import { supabaseConfigured } from "@/lib/env"
-import { createClient } from "@/lib/supabase/server"
+import { api } from "@/convex/_generated/api"
+import { getAuthToken } from "@/lib/convex-server"
 
 export type CurrentUser = {
   id: string
@@ -13,65 +14,35 @@ export type CurrentUser = {
   avatarUrl: string | null
 }
 
-export const getCurrentUser = cache(async (): Promise<CurrentUser | null> => {
-  if (!supabaseConfigured()) return null
-
+async function token() {
   try {
-    const supabase = await createClient()
-    const {
-      data: { user },
-    } = await supabase.auth.getUser()
-    if (!user) return null
+    return (await getAuthToken()) ?? undefined
+  } catch {
+    return undefined
+  }
+}
 
-    const { data: profile } = await supabase
-      .from("profiles")
-      .select("full_name, avatar_url")
-      .eq("id", user.id)
-      .maybeSingle()
-
-    return {
-      id: user.id,
-      email: user.email,
-      name: profile?.full_name ?? user.user_metadata?.full_name ?? null,
-      avatarUrl: profile?.avatar_url ?? null,
-    }
+export const getCurrentUser = cache(async (): Promise<CurrentUser | null> => {
+  try {
+    return await fetchQuery(api.users.me, {}, { token: await token() })
   } catch {
     return null
   }
 })
 
 export async function requireDashboardAccess() {
-  const configured = supabaseConfigured()
-
-  // Pre-Supabase, the dashboard runs in demo mode so the UI is reviewable.
-  if (!configured) {
-    return { user: null, demo: true }
+  let user: CurrentUser | null = null
+  try {
+    user = await fetchQuery(api.users.me, {}, { token: await token() })
+  } catch {
+    // Fall through to redirect when the user is signed out.
   }
-
-  const supabase = await createClient()
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
 
   if (!user) {
     redirect("/login")
   }
 
-  const { data: profile } = await supabase
-    .from("profiles")
-    .select("full_name, avatar_url")
-    .eq("id", user.id)
-    .maybeSingle()
-
-  return {
-    user: {
-      id: user.id,
-      email: user.email,
-      name: profile?.full_name ?? user.user_metadata?.full_name ?? null,
-      avatarUrl: profile?.avatar_url ?? null,
-    } satisfies CurrentUser,
-    demo: false,
-  }
+  return { user, demo: false }
 }
 
 export type ApiKeyRow = {
@@ -84,28 +55,15 @@ export type ApiKeyRow = {
 }
 
 export async function getApiKeys(): Promise<ApiKeyRow[]> {
-  if (!supabaseConfigured()) return []
-
   try {
-    const supabase = await createClient()
-    const {
-      data: { user },
-    } = await supabase.auth.getUser()
-    if (!user) return []
-
-    const { data } = await supabase
-      .from("api_keys")
-      .select("id, name, prefix, created_at, last_used_at, revoked_at")
-      .eq("user_id", user.id)
-      .order("created_at", { ascending: false })
-
-    return (data ?? []).map((row) => ({
+    const rows = await fetchQuery(api.apiKeys.listApiKeys, {}, { token: await token() })
+    return rows.map((row) => ({
       id: row.id,
       name: row.name,
       prefix: row.prefix,
-      createdAt: row.created_at,
-      lastUsedAt: row.last_used_at,
-      revokedAt: row.revoked_at,
+      createdAt: new Date(row.createdAt).toISOString(),
+      lastUsedAt: row.lastUsedAt ? new Date(row.lastUsedAt).toISOString() : null,
+      revokedAt: row.revokedAt ? new Date(row.revokedAt).toISOString() : null,
     }))
   } catch {
     return []
@@ -113,23 +71,17 @@ export async function getApiKeys(): Promise<ApiKeyRow[]> {
 }
 
 export async function getUserPlan(): Promise<string> {
-  if (!supabaseConfigured()) return "free"
-
   try {
-    const supabase = await createClient()
-    const {
-      data: { user },
-    } = await supabase.auth.getUser()
-    if (!user) return "free"
-
-    const { data } = await supabase
-      .from("subscriptions")
-      .select("plan")
-      .eq("user_id", user.id)
-      .maybeSingle()
-
-    return data?.plan ?? "free"
+    return await fetchQuery(api.subscriptions.getPlan, {}, { token: await token() })
   } catch {
     return "free"
+  }
+}
+
+export async function getUserCredits(): Promise<number> {
+  try {
+    return await fetchQuery(api.credits.getBalance, {}, { token: await token() })
+  } catch {
+    return 0
   }
 }
