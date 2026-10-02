@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, type ReactNode } from "react"
-import { createClient } from "@/lib/supabase/client"
+import { useAuthActions } from "@convex-dev/auth/react"
 
 type Provider = "google" | "discord"
 
@@ -42,17 +42,24 @@ const providers: { id: Provider; label: string; icon: ReactNode }[] = [
 ]
 
 export function SocialLoginButtons() {
+  const { signIn } = useAuthActions()
   const [loading, setLoading] = useState<Provider | null>(null)
+  const [failed, setFailed] = useState<string | null>(null)
 
   async function handleOAuth(provider: Provider) {
     setLoading(provider)
-    const supabase = createClient()
-    await supabase.auth.signInWithOAuth({
-      provider,
-      options: {
-        redirectTo: `${window.location.origin}/auth/callback`,
-      },
-    })
+    setFailed(null)
+    try {
+      // The SDK redirects the browser to the provider once an OAuth URL is ready.
+      await signIn(provider)
+    } catch (err) {
+      setFailed(
+        err instanceof Error
+          ? err.message
+          : `${provider} sign-in didn't complete. Please try again.`
+      )
+      setLoading(null)
+    }
   }
 
   return (
@@ -69,6 +76,11 @@ export function SocialLoginButtons() {
           {loading === provider.id ? "Redirecting…" : provider.label}
         </button>
       ))}
+      {failed ? (
+        <p className="rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2.5 text-sm text-destructive">
+          {failed}
+        </p>
+      ) : null}
     </div>
   )
 }

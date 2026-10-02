@@ -1,11 +1,11 @@
 import type { Metadata } from "next"
 import Link from "next/link"
-import { ArrowRight, ArrowUpRight, Headphones, ShieldAlert, UserRound } from "lucide-react"
+import { ArrowRight, ArrowUpRight, Coins, Headphones, ShieldAlert, UserRound } from "lucide-react"
 
 import { DashboardSection } from "@/components/dashboard/dashboard-section"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
-import { requireDashboardAccess, getUserPlan } from "@/lib/dal"
+import { requireDashboardAccess, getUserPlan, getUserCredits } from "@/lib/dal"
 import { recentActivity } from "@/lib/demo-usage"
 import { site } from "@/lib/site"
 
@@ -24,6 +24,7 @@ export default async function OverviewPage() {
   const { user, demo } = await requireDashboardAccess()
   const rawPlan = demo ? "free" : await getUserPlan()
   const plan = rawPlan === "pro" ? "Pro" : rawPlan === "ultimate" ? "Ultimate" : "Free"
+  const credits = demo ? 0 : await getUserCredits()
 
   const name = user?.name?.split(" ")[0] ?? "there"
 
@@ -66,7 +67,27 @@ export default async function OverviewPage() {
         </div>
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-3">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <Card className="transition-colors hover:border-primary/30">
+          <CardContent className="space-y-1 pt-6">
+            <p className="flex items-center gap-1.5 font-mono text-xs uppercase tracking-wider text-muted-foreground">
+              <Coins className="size-3.5 text-primary" />
+              Tokens
+            </p>
+            <p className="font-mono text-2xl font-semibold text-primary">
+              {credits.toLocaleString()}
+            </p>
+            <Button
+              variant="ghost"
+              size="sm"
+              render={<Link href="/dashboard/billing" />}
+              className="mt-1 h-auto p-0 text-xs"
+            >
+              Top up
+              <ArrowUpRight data-icon="inline-end" className="size-3" />
+            </Button>
+          </CardContent>
+        </Card>
         <Card className="transition-colors hover:border-primary/30">
           <CardContent className="space-y-1 pt-6">
             <p className="font-mono text-xs uppercase tracking-wider text-muted-foreground">

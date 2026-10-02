@@ -1,9 +1,11 @@
 "use server"
 
-import { supabaseConfigured } from "@/lib/env"
-import { createClient } from "@/lib/supabase/server"
+import { fetchMutation } from "convex/nextjs"
+
+import { api } from "@/convex/_generated/api"
+import type { Id } from "@/convex/_generated/dataModel"
+import { getAuthToken, convexErrorMessage } from "@/lib/convex-server"
 import type { FormState } from "@/actions/auth"
-import { generateApiKey, hashApiKey } from "@/lib/api-keys"
 
 export type CreatedApiKey = {
   id: string
@@ -26,52 +28,22 @@ export async function createApiKey(
     return { errors: { name: ["Name your key so you can recognise it."] } }
   }
 
-  if (!supabaseConfigured()) {
+  try {
+    const result = await fetchMutation(
+      api.apiKeys.createApiKey,
+      { name },
+      { token: await getAuthToken() }
+    )
     return {
-      errors: {},
-      message:
-        "API keys are unavailable until Supabase is configured and supabase/schema.sql is applied.",
+      created: {
+        id: result.id,
+        name: result.name,
+        fullKey: result.fullKey,
+      },
+      message: `Created ${name}. Copy it now — it won't be shown again.`,
     }
-  }
-
-  const supabase = await createClient()
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
-  if (!user) return { errors: {}, message: "You must be signed in." }
-
-  const { fullKey, prefix } = generateApiKey()
-
-  const { data, error } = await supabase
-    .from("api_keys")
-    .insert({
-      user_id: user.id,
-      name,
-      prefix,
-      secret_hash: hashApiKey(fullKey),
-      scopes: [],
-    })
-    .select("id, name")
-    .single()
-
-  if (error) {
-    if (error.code === "42P01") {
-      return {
-        errors: {},
-        message:
-          "The api_keys table doesn't exist yet. Apply supabase/schema.sql, then try again.",
-      }
-    }
-    return { errors: {}, message: error.message }
-  }
-
-  return {
-    created: {
-      id: data.id,
-      name: data.name,
-      fullKey,
-    },
-    message: `Created ${name}. Copy it now — it won't be shown again.`,
+  } catch (err) {
+    return { errors: {}, message: convexErrorMessage(err) }
   }
 }
 
@@ -82,23 +54,14 @@ export async function revokeApiKey(
   const id = String(formData.get("id") ?? "")
   if (!id) return { errors: {}, message: "Missing key." }
 
-  if (!supabaseConfigured()) {
-    return { errors: {}, message: "Supabase isn't configured." }
+  try {
+    const result = await fetchMutation(
+      api.apiKeys.revokeApiKey,
+      { id: id as Id<"apiKeys"> },
+      { token: await getAuthToken() }
+    )
+    return { message: result.message }
+  } catch (err) {
+    return { errors: {}, message: convexErrorMessage(err) }
   }
-
-  const supabase = await createClient()
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
-  if (!user) return { errors: {}, message: "You must be signed in." }
-
-  const { error } = await supabase
-    .from("api_keys")
-    .update({ revoked_at: new Date().toISOString() })
-    .eq("id", id)
-    .eq("user_id", user.id)
-
-  if (error) return { errors: {}, message: error.message }
-
-  return { message: "API key revoked." }
 }

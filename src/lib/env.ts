@@ -1,26 +1,3 @@
-export function supabaseConfigured() {
-  return Boolean(
-    process.env.NEXT_PUBLIC_SUPABASE_URL &&
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-  )
-}
-
-export function supabaseServiceConfigured() {
-  return Boolean(process.env.SUPABASE_SERVICE_ROLE_KEY)
-}
-
-export function getSupabaseServiceRoleKey() {
-  return process.env.SUPABASE_SERVICE_ROLE_KEY ?? ""
-}
-
-export function getSupabaseUrl() {
-  return process.env.NEXT_PUBLIC_SUPABASE_URL ?? ""
-}
-
-export function getSupabaseAnonKey() {
-  return process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? ""
-}
-
 // Shieldz payment gateway (server-only keys — never expose to the browser).
 export function shieldzConfigured() {
   return Boolean(process.env.SHIELDZ_API_KEY)
@@ -60,3 +37,19 @@ export const SITE_URL =
   process.env.SITE_URL ??
   process.env.NEXT_PUBLIC_SITE_URL ??
   "http://localhost:3000"
+
+// Convex. NEXT_PUBLIC_CONVEX_URL is set by `npx convex dev`.
+export function getConvexUrl() {
+  return (
+    process.env.NEXT_PUBLIC_CONVEX_URL ??
+    process.env.CONVEX_SITE_URL ??
+    ""
+  )
+}
+
+// The webhook secret gate lives in Convex env as CONVEX_WEBHOOK_SECRET and
+// must match SHIELDZ_WEBHOOK_SECRET. Set with:
+//   npx convex env set CONVEX_WEBHOOK_SECRET <value>
+export function getConvexWebhookSecret() {
+  return process.env.CONVEX_WEBHOOK_SECRET ?? ""
+}

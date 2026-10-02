@@ -4,9 +4,9 @@ import { useState } from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { usePathname } from "next/navigation"
+import { useAuthActions } from "@convex-dev/auth/react"
 import { ArrowRight, ChevronDown, LayoutDashboard, LogOut, Menu, Settings2 } from "lucide-react"
 
-import { logout } from "@/actions/auth"
 import { Logo } from "@/components/site/logo"
 import { Button } from "@/components/ui/button"
 import {
@@ -33,10 +33,11 @@ import type { CurrentUser } from "@/lib/dal"
 export function NavbarClient({ user }: { user: CurrentUser | null }) {
   const pathname = usePathname()
   const router = useRouter()
+  const { signOut } = useAuthActions()
   const [open, setOpen] = useState(false)
 
   async function handleSignOut() {
-    await logout()
+    await signOut()
     router.replace("/login")
     router.refresh()
   }

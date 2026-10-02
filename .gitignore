@@ -37,8 +37,7 @@ yarn-error.log*
 .vercel
 
 # OAuth provider secrets
-/public/client_secret_*.json
-/proxy.ts
+**/client_secret_*.json
 
 # typescript
 *.tsbuildinfo

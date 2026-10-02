@@ -1,8 +1,10 @@
 import type { Metadata } from "next"
 import { Geist_Mono, Inter } from "next/font/google"
+import { ConvexAuthNextjsServerProvider } from "@convex-dev/auth/nextjs/server"
 
 import "./globals.css"
 import { cn } from "@/lib/utils"
+import { ConvexProviders } from "@/components/providers"
 
 const inter = Inter({
   subsets: ["latin"],
@@ -57,7 +59,9 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
       )}
     >
       <body className="min-h-dvh bg-background text-foreground">
-        {children}
+        <ConvexAuthNextjsServerProvider>
+          <ConvexProviders>{children}</ConvexProviders>
+        </ConvexAuthNextjsServerProvider>
       </body>
     </html>
   )
