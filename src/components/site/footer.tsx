@@ -68,7 +68,7 @@ export function Footer() {
           </p>
           <p className="font-mono text-xs text-muted-foreground">
             Deployed on <span className="text-primary">Vercel</span> · Backed by{" "}
-            <span className="text-primary">Supabase</span>
+            <span className="text-primary">Convex</span>
           </p>
         </div>
       </Container>

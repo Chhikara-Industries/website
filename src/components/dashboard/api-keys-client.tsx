@@ -44,13 +44,7 @@ function CopyButton({ value }: { value: string }) {
   )
 }
 
-export function ApiKeysClient({
-  keys,
-  demo,
-}: {
-  keys: ApiKeyRow[]
-  demo: boolean
-}) {
+export function ApiKeysClient({ keys }: { keys: ApiKeyRow[] }) {
   const [state, formAction, pending] = useActionState(createApiKey, undefined)
   const [revealed, setRevealed] = useState(false)
   const formRef = useRef<HTMLFormElement>(null)
@@ -71,12 +65,6 @@ export function ApiKeysClient({
           </CardDescription>
         </CardHeader>
         <CardContent>
-          {demo ? (
-            <p className="mb-4 rounded-lg border border-primary/30 bg-primary/10 px-3 py-2.5 text-sm text-primary">
-              Demo mode — creating keys requires Supabase and the api_keys table.
-            </p>
-          ) : null}
-
           <form
             ref={formRef}
             action={formAction}

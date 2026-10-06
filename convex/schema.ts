@@ -3,8 +3,8 @@ import { v } from "convex/values";
 import { authTables } from "@convex-dev/auth/server";
 
 /**
- * Convex Auth owns the `users` table (name, email, image, timestamps), so the
- * former Supabase `profiles` table is not replicated here.
+ * Convex Auth owns the `users` table (name, email, image, timestamps), so no
+ * separate profiles table is needed here.
  */
 export default defineSchema({
   ...authTables,

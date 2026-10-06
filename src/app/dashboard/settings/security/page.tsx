@@ -7,17 +7,8 @@ export const metadata: Metadata = {
   title: "Security settings",
 }
 
-const demoEmail = "demo@chhikara.industries"
-
 export default async function SecuritySettingsPage() {
-  const { user, demo } = await requireDashboardAccess()
+  const { user } = await requireDashboardAccess()
 
-  const current = {
-    id: user?.id ?? "demo",
-    email: user?.email ?? demoEmail,
-    name: user?.name,
-    avatarUrl: user?.avatarUrl ?? null,
-  }
-
-  return <SettingsSecurityForm user={current} demo={demo} />
+  return <SettingsSecurityForm user={user} />
 }

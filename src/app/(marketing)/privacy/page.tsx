@@ -23,7 +23,7 @@ const sections = [
   {
     heading: "3. Authentication",
     body: [
-      "Authentication is provided by Supabase. Passwords are hashed and never stored in plaintext. Session data is carried in secure, httpOnly cookies and refreshed automatically.",
+      "Authentication is provided by Convex Auth. Passwords are hashed and never stored in plaintext. Session data is carried in secure, httpOnly cookies and refreshed automatically.",
     ],
   },
   {
