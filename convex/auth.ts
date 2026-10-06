@@ -78,8 +78,7 @@ export const { auth, signIn, signOut, store, isAuthenticated } = convexAuth({
   ],
   callbacks: {
     /**
-     * Mirrors the old Supabase `handle_new_user()` trigger: every new account
-     * starts on the free plan with a zero token balance.
+     * Every new account starts on the free plan with a zero token balance.
      */
     async afterUserCreatedOrUpdated(ctx, { userId, existingUserId }) {
       if (existingUserId) return;

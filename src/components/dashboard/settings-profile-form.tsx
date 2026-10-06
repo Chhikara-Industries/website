@@ -10,7 +10,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import type { CurrentUser } from "@/lib/dal"
 
-export function SettingsProfileForm({ user, demo }: { user: CurrentUser; demo: boolean }) {
+export function SettingsProfileForm({ user }: { user: CurrentUser }) {
   const [state, formAction, pending] = useActionState<FormState, FormData>(
     updateProfile,
     undefined
@@ -25,12 +25,6 @@ export function SettingsProfileForm({ user, demo }: { user: CurrentUser; demo: b
         </CardDescription>
       </CardHeader>
       <CardContent>
-        {demo ? (
-          <p className="mb-4 rounded-lg border border-primary/30 bg-primary/10 px-3 py-2.5 text-sm text-primary">
-            Demo mode — save won’t persist until Supabase is configured.
-          </p>
-        ) : null}
-
         <form action={formAction} className="space-y-5">
           <div className="space-y-2">
             <Label htmlFor="settings-name">Full name</Label>

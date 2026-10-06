@@ -1,6 +1,6 @@
 import type { Metadata } from "next"
 import Link from "next/link"
-import { ArrowRight, ArrowUpRight, Coins, Headphones, ShieldAlert, UserRound } from "lucide-react"
+import { ArrowRight, ArrowUpRight, Coins, Headphones, UserRound } from "lucide-react"
 
 import { DashboardSection } from "@/components/dashboard/dashboard-section"
 import { Button } from "@/components/ui/button"
@@ -21,25 +21,15 @@ const activityStyles = {
 } as const
 
 export default async function OverviewPage() {
-  const { user, demo } = await requireDashboardAccess()
-  const rawPlan = demo ? "free" : await getUserPlan()
+  const { user } = await requireDashboardAccess()
+  const rawPlan = await getUserPlan()
   const plan = rawPlan === "pro" ? "Pro" : rawPlan === "ultimate" ? "Ultimate" : "Free"
-  const credits = demo ? 0 : await getUserCredits()
+  const credits = await getUserCredits()
 
   const name = user?.name?.split(" ")[0] ?? "there"
 
   return (
     <div className="mx-auto max-w-5xl space-y-8">
-      {demo ? (
-        <div className="flex items-center gap-3 rounded-xl border border-primary/30 bg-primary/5 px-4 py-3 text-sm">
-          <ShieldAlert className="size-4 shrink-0 text-primary" />
-          <span>
-            You&apos;re viewing your account in <strong>demo mode</strong>. Configure
-            Supabase to enable real accounts and data.
-          </span>
-        </div>
-      ) : null}
-
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">

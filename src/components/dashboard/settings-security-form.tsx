@@ -16,13 +16,7 @@ function FieldError({ state, id }: { state: FormState; id: string }) {
   return message ? <p className="text-xs text-destructive">{message}</p> : null
 }
 
-export function SettingsSecurityForm({
-  user,
-  demo,
-}: {
-  user: CurrentUser
-  demo: boolean
-}) {
+export function SettingsSecurityForm({ user }: { user: CurrentUser }) {
   const bound = updatePassword.bind(null, user.email ?? "")
   const [state, formAction, pending] = useActionState<FormState, FormData>(bound, undefined)
 
@@ -39,12 +33,6 @@ export function SettingsSecurityForm({
           </CardDescription>
         </CardHeader>
         <CardContent>
-          {demo ? (
-            <p className="mb-4 rounded-lg border border-primary/30 bg-primary/10 px-3 py-2.5 text-sm text-primary">
-              Demo mode — password changes need Supabase to be configured.
-            </p>
-          ) : null}
-
           <form action={formAction} className="space-y-4">
             <div className="space-y-2">
               <Label htmlFor="current">Current password</Label>

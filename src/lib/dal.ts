@@ -42,7 +42,7 @@ export async function requireDashboardAccess() {
     redirect("/login")
   }
 
-  return { user, demo: false }
+  return { user }
 }
 
 export type ApiKeyRow = {

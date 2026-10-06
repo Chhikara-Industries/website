@@ -1,15 +1,14 @@
 import type { Metadata } from "next"
 
 import { ApiKeysClient } from "@/components/dashboard/api-keys-client"
-import { getApiKeys, requireDashboardAccess } from "@/lib/dal"
+import { getApiKeys } from "@/lib/dal"
 
 export const metadata: Metadata = {
   title: "APIs",
 }
 
 export default async function ApiKeysPage() {
-  const { demo } = await requireDashboardAccess()
-  const keys = demo ? [] : await getApiKeys()
+  const keys = await getApiKeys()
 
   return (
     <div className="mx-auto max-w-3xl space-y-6">
@@ -27,7 +26,7 @@ export default async function ApiKeysPage() {
         </span>
       </div>
 
-      <ApiKeysClient keys={keys} demo={demo} />
+      <ApiKeysClient keys={keys} />
     </div>
   )
 }
