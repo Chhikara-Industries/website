@@ -112,46 +112,4 @@ export default defineSchema({
   })
     .index("by_userId", ["userId"])
     .index("by_referenceId_and_type", ["referenceId", "type"]),
-
-  slickyRooms: defineTable({
-    code: v.string(),
-    name: v.string(),
-    createdBy: v.id("users"),
-    createdAt: v.number(),
-  })
-    .index("by_code", ["code"])
-    .index("by_createdBy", ["createdBy"]),
-
-  slickyRoomMembers: defineTable({
-    roomCode: v.string(),
-    userId: v.id("users"),
-    joinedAt: v.number(),
-  })
-    .index("by_roomCode", ["roomCode"])
-    .index("by_userId", ["userId"]),
-
-  slickyMessages: defineTable({
-    roomCode: v.string(),
-    userId: v.id("users"),
-    contentType: v.string(),
-    content: v.optional(v.string()),
-    /** Convex storage id for the attachment blob, when present. */
-    attachmentId: v.optional(v.id("_storage")),
-    attachmentMime: v.optional(v.string()),
-    attachmentName: v.optional(v.string()),
-    cost: v.number(),
-    createdAt: v.number(),
-  }).index("by_roomCode", ["roomCode"]),
-
-  slickyAttachments: defineTable({
-    roomCode: v.string(),
-    userId: v.id("users"),
-    storageId: v.id("_storage"),
-    contentType: v.string(),
-    mimeType: v.string(),
-    filename: v.string(),
-    createdAt: v.number(),
-  })
-    .index("by_roomCode", ["roomCode"])
-    .index("by_userId", ["userId"]),
 });

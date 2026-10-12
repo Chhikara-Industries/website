@@ -15,9 +15,6 @@ import type * as credits from "../credits.js";
 import type * as http from "../http.js";
 import type * as lib_helpers from "../lib/helpers.js";
 import type * as security from "../security.js";
-import type * as slicky from "../slicky.js";
-import type * as slickyDb from "../slickyDb.js";
-import type * as slickyQueries from "../slickyQueries.js";
 import type * as subscriptions from "../subscriptions.js";
 import type * as users from "../users.js";
 
@@ -35,9 +32,6 @@ declare const fullApi: ApiFromModules<{
   http: typeof http;
   "lib/helpers": typeof lib_helpers;
   security: typeof security;
-  slicky: typeof slicky;
-  slickyDb: typeof slickyDb;
-  slickyQueries: typeof slickyQueries;
   subscriptions: typeof subscriptions;
   users: typeof users;
 }>;
