@@ -20,7 +20,7 @@ const geistMono = Geist_Mono({
 
 const siteTitle = "Chhikara Industries"
 const siteDescription =
-  "Chhikara Industries builds free, simple software — with robotics and engineering projects on the way."
+  "Chhikara Industries builds simple, dependable software — with robotics and engineering projects on the way."
 
 export const metadata: Metadata = {
   metadataBase: new URL(
