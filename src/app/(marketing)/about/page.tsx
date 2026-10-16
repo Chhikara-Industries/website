@@ -57,7 +57,7 @@ const whatWeBuild = [
     icon: Code2,
     title: "Software",
     description:
-      "Practical, free software for everyday needs. Just tools that work, without getting in the way.",
+      "Practical software for everyday needs. Just tools that work, without getting in the way.",
   },
   {
     icon: Globe,

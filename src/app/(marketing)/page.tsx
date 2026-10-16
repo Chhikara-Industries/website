@@ -48,12 +48,12 @@ export default function HomePage() {
           <div className="mx-auto max-w-2xl text-center">
             <Eyebrow>Chhikara Industries</Eyebrow>
             <h1 className="mt-6 text-balance text-4xl font-semibold leading-[1.05] tracking-tight sm:text-6xl">
-              We build <span className="text-glow text-primary">free software</span>.
+              We build <span className="text-glow text-primary">software that works</span>.
             </h1>
             <p className="mx-auto mt-6 max-w-xl text-pretty text-lg leading-relaxed text-muted-foreground">
-              Simple, dependable software for everyday needs — free, and made
-              for everyone. Right now that work is in development; robotics and
-              engineering projects are next.
+              Simple, dependable software for everyday needs — made for
+              everyone, and priced fairly. Right now that work is in development;
+              robotics and engineering projects are next.
             </p>
             <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
               <Button

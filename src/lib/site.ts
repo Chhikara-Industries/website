@@ -3,7 +3,7 @@ export const site = {
   shortName: "Chhikara",
   legalName: "Chhikara Industries",
   description:
-    "Chhikara Industries builds free, simple software — with robotics and engineering projects on the way.",
+    "Chhikara Industries builds simple, dependable software — with robotics and engineering projects on the way.",
   url: process.env.NEXT_PUBLIC_SITE_URL ?? "https://chhikara.industries",
   email: "hello@chhikara.industries",
   supportEmail: "support@chhikara.industries",
